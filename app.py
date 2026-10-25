@@ -627,21 +627,23 @@ def _fulltime_bucket(j,only_fulltime):
  return None
 
 def _experience_evidence(text):
- """Only extract explicit wording, not assume that Kevin satisfies it."""
- if not text.strip():return ('unknown','Annonsbeskrivning saknas; erfarenhetskrav okända','Ingen text att granska')
+ """Evidence-based experience summary, never invent a requirement."""
+ if not text.strip():return ('unknown','Annonsbeskrivning saknas – erfarenhetskrav okända','Ingen annonstext tillgänglig')
  patterns=[
-  (r'(?i)\b(?:minst|minimum|lägst)\s*(\d{1,2})\s*års?\s*(?:relevant\s+|praktisk\s+|yrkes)?erfarenhet', 'Minst {} års erfarenhet nämns'),
-  (r'(?i)\b(\d{1,2})\s*års?\s+(?:relevant\s+|praktisk\s+|yrkes)?erfarenhet\s+(?:krävs|är ett krav)', '{} års erfarenhet anges som krav')]
- for pattern,template in patterns:
-  match=re.search(pattern,text)
-  if match:
-   years=int(match.group(1))
-   return ('review',template.format(years)+' – kontrollera mot Kevins CV', 'Uttryckligt antal år hittades i annonstexten; automatisk CV-verifiering saknas')
+  r'(?i)\b(?:minst|minimum|lägst|cirka|ca)\s*(\d{1,2})\s*års?\s*(?:relevant\s+|praktisk\s+|yrkes)?erfarenhet',
+  r'(?i)\b(\d{1,2})\s*års?\s+(?:relevant\s+|praktisk\s+|yrkes)?erfarenhet\s+(?:krävs|är ett krav|efterfrågas)']
+ for pattern in patterns:
+  m=re.search(pattern,text)
+  if m:
+   years=int(m.group(1))
+   return ('review',f'Annonsen nämner {years} års erfarenhet – jämför med Kevins dokumenterade erfarenhet',f'Antal år ({years}) hittat i annonstexten; det är inte automatiskt verifierat mot CV:t')
  if re.search(r'(?i)\b(?:ingen erfarenhet krävs|utan tidigare erfarenhet|erfarenhet krävs inte)\b',text):
-  return ('ok','Annonsen anger att tidigare erfarenhet inte krävs','Uttryckligt undantag i annonstexten')
- if re.search(r'(?i)\b(?:erfarenhet|yrkesvana|yrkesbevis|gesällbrev|självständigt arbete)\b',text):
-  return ('review','Erfarenhet eller yrkesvana nämns – jämför kravet med Kevins CV','Erfarenhetsrelaterad formulering hittades; kravets nivå är inte automatiskt verifierad')
- return ('review','Inget uttryckligt erfarenhetskrav hittat – kontrollera originalannonsen','Sökning i tillgänglig annonstext; avsaknad av träff är inte bevis för att krav saknas')
+  return ('ok','Annonsen säger att tidigare erfarenhet inte krävs','Uttrycklig formulering i annonstexten')
+ m=re.search(r'(?i)(?:erfarenhet|yrkesvana|yrkesbevis|gesällbrev|självständigt arbete)[^\n.!?]{0,95}',text)
+ if m:
+  excerpt=re.sub(r'\s+',' ',m.group(0)).strip()[:110]
+  return ('review','Erfarenhet nämns: ”'+excerpt+'”','Textutdrag från annonsen, inte en bedömning av om Kevin uppfyller kravet')
+ return ('review','Inget konkret erfarenhetskrav hittades i tillgänglig text','Det innebär inte att arbetsgivaren saknar erfarenhetskrav; kontrollera originalannonsen')
 
 def _requirement_checks(job):
  """Show actual evidence and unresolved requirements separately."""
@@ -650,7 +652,7 @@ def _requirement_checks(job):
  status=job.get('license_status') or 'not_mentioned'
  licence={
   'required':('block','Obligatoriskt körkort identifierat','Annonsdata anger krav på körkort'),
-  'conflict':('review','Motstridiga uppgifter om körkort','Strukturerat obligatoriskt krav motsägs av meriterande/ej krav i annonstext; kontrollera originalannonsen'),
+  'conflict':('review','API anger obligatoriskt körkort men annonstexten anger meriterande eller inget krav – kontrollera originalet','Motsägelse mellan strukturerat körkortsfält och annonstext. Inget automatiskt klartecken ges'),
   'not_required':('ok','Strukturerad annonsdata anger inte obligatoriskt körkort','Kravet kan fortfarande behöva dubbelkontrolleras i originalannonsen'),
   'optional':('review','Körkort nämns som meriterande eller utan styrkt krav','Detta är inte ett verifierat obligatoriskt krav'),
   'forklift':('review','Truckkort nämns','Truckkort och B-körkort är olika behörigheter'),
@@ -665,7 +667,7 @@ def _requirement_checks(job):
  application_status=('ok','Ansökningsadress eller länk finns','Annonsdata anger ansökningssätt') if application.get('type') in ('email','external') and (application.get('email') or application.get('url')) else ('review','Ansökningssätt behöver kontrolleras','Öppna originalannonsen')
  description=('ok','Annonsbeskrivning tillgänglig','Text finns i sökresultatet') if len(text.strip())>=45 else ('unknown','Fullständig annonsbeskrivning saknas','Otillräckligt underlag för kravbedömning')
  city=job.get('city') or ''
- place=('review',f'{city} enligt annonsdata – faktisk arbetsplats ej särskilt verifierad','Ort i annonsens platsfält; arbetsgivarens namn räcker inte som bevis') if city else ('unknown','Arbetsort saknas','Kan inte räkna säkert avstånd')
+ place=('review',f'Arbetsort enligt API: {city} – exakt arbetsplats ej verifierad','Avstånd kan vara missvisande när annonsen bara anger kommun eller en övergripande ort') if city else ('unknown','Arbetsort saknas – avstånd okänt','Kan inte räkna säkert avstånd')
  return [dict(name=name,status=value[0],message=value[1],evidence=value[2]) for name,value in (
    ('Körkort',licence),('Erfarenhet',experience),('Arbetstid',hours),
    ('Arbetsort',place),('Ansökan',application_status),('Annonsunderlag',description))]
