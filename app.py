@@ -954,7 +954,9 @@ def health():return jsonify(status='ok')
 if __name__=='__main__':app.run(host='0.0.0.0',port=int(os.getenv('PORT','5000')))
 
 @app.after_request
-def _v49_no_cache(response):
- if response.mimetype in ('text/html','application/json'):
-  response.headers['Cache-Control']='no-store, max-age=0'
+def _v50_no_cache(response):
+ if response.mimetype in ('text/html','application/json') or response.path.startswith('/static/'):
+  response.headers['Cache-Control']='no-store, no-cache, must-revalidate, max-age=0'
+  response.headers['Pragma']='no-cache'
+  response.headers['Expires']='0'
  return response
