@@ -128,3 +128,12 @@ En separat mörk panel med limegrön rubrik visas alltid under sökrapporten, f�
 - Saknade uppgifter visas uttryckligen i stället för enbart en allmän varning.
 - Heltidsfiltret, yrkesprioriteringen, käll-ID-uppslagen, körkortsblockeringen, geografiska filter och KING-designen ändras inte.
 - Ny lokal cacheversion. Ingen extern ansökan eller e-post skickas automatiskt.
+
+
+## v46 – fem bästa möjliga CV-matchningar
+- Blanda verifierade och preliminära CV-matchningar till max fem utifrån befintlig yrkesprioritet och matchpoäng.
+- Märk varje preliminär match tydligt och visa kravkontrollerna från v45. En preliminär matchning påstås **inte** vara verifierad.
+- Bekräftat obligatoriskt körkort och bekräftad deltid (vid heltidsfilter) får inte visas. Övriga backendfilter för senioritet, erfarenhet, CV och geografi gäller oförändrat.
+- Visa kvarvarande preliminära jobb under Behöver kontrolleras, utan dubbletter bland de fem.
+- Behåll ansökningshistorik, nej-tack-räknare, CV-lägen, KING-design och Render-konfiguration.
+- Uppdatera befintlig Render-tjänst `no-more-clown-king-live-nweg`; skapa inte en ny Blueprint.
