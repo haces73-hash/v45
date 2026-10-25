@@ -12,3 +12,11 @@ Jobb4kevin v50 – Versionsbunden sökcache, automatisk rensning av gamla sökre
 - NEJ TACK ritar alltid om jobblistan, även när annonsen redan avböjts samma dag.
 - Dagens avböjning räknas bara en gång och samma jobb återkommer inte förrän nästa dag.
 - Historik och tre-avböjningar-regeln bevaras.
+
+## v53
+- Dagens fem bäst matchade jobb är en fast lista per kalenderdag (svensk tid) och valda sökinställningar.
+- NEJ TACK tar bort jobbkortet direkt, utan automatisk påfyllning. Två avböjningar lämnar tre av fem jobb kvar.
+- Manuell sökning och rensning av sökcache fyller inte på dagens fasta lista.
+- En ny svensk kalenderdag får en ny lista med upp till fem jobb; tidigare avböjningar kan återkomma på senare dagar, högst två gånger till.
+- Byte av sökinställningar ger en egen fast lista för de inställningarna.
+- Den fasta listan, historik och avböjningar sparas lokalt i samma webbläsare.
