@@ -137,3 +137,11 @@ En separat mörk panel med limegrön rubrik visas alltid under sökrapporten, f�
 - Visa kvarvarande preliminära jobb under Behöver kontrolleras, utan dubbletter bland de fem.
 - Behåll ansökningshistorik, nej-tack-räknare, CV-lägen, KING-design och Render-konfiguration.
 - Uppdatera befintlig Render-tjänst `no-more-clown-king-live-nweg`; skapa inte en ny Blueprint.
+
+
+## Version 47
+- Varje kravrad visar en expanderbar **Varför denna bedömning?** med källans begränsningar.
+- Motstridiga körkortsuppgifter förklaras; inga obligatoriska krav släpps igenom automatiskt.
+- Erfarenhetskontrollen identifierar uttryckliga antal år och vissa andra formuleringar, utan att hävda att Kevins CV automatiskt uppfyller kraven.
+- Arbetsort redovisas som **enligt annonsdata**, inte verifierad faktisk arbetsplats; ort får inte härledas från företagsnamnet.
+- Heltidsfilter, max fem matchningar, KING-design och yrkesprioritering behålls.

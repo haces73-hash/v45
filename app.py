@@ -626,33 +626,49 @@ def _fulltime_bucket(j,only_fulltime):
  # The card must still clearly say that hours have not been confirmed.
  return None
 
-def _requirement_checks(job):
- """Explain what is evidenced and what is unknown; never infer suitability.
+def _experience_evidence(text):
+ """Only extract explicit wording, not assume that Kevin satisfies it."""
+ if not text.strip():return ('unknown','Annonsbeskrivning saknas; erfarenhetskrav okända','Ingen text att granska')
+ patterns=[
+  (r'(?i)\b(?:minst|minimum|lägst)\s*(\d{1,2})\s*års?\s*(?:relevant\s+|praktisk\s+|yrkes)?erfarenhet', 'Minst {} års erfarenhet nämns'),
+  (r'(?i)\b(\d{1,2})\s*års?\s+(?:relevant\s+|praktisk\s+|yrkes)?erfarenhet\s+(?:krävs|är ett krav)', '{} års erfarenhet anges som krav')]
+ for pattern,template in patterns:
+  match=re.search(pattern,text)
+  if match:
+   years=int(match.group(1))
+   return ('review',template.format(years)+' – kontrollera mot Kevins CV', 'Uttryckligt antal år hittades i annonstexten; automatisk CV-verifiering saknas')
+ if re.search(r'(?i)\b(?:ingen erfarenhet krävs|utan tidigare erfarenhet|erfarenhet krävs inte)\b',text):
+  return ('ok','Annonsen anger att tidigare erfarenhet inte krävs','Uttryckligt undantag i annonstexten')
+ if re.search(r'(?i)\b(?:erfarenhet|yrkesvana|yrkesbevis|gesällbrev|självständigt arbete)\b',text):
+  return ('review','Erfarenhet eller yrkesvana nämns – jämför kravet med Kevins CV','Erfarenhetsrelaterad formulering hittades; kravets nivå är inte automatiskt verifierad')
+ return ('review','Inget uttryckligt erfarenhetskrav hittat – kontrollera originalannonsen','Sökning i tillgänglig annonstext; avsaknad av träff är inte bevis för att krav saknas')
 
- Full text alone does not establish that no mandatory experience is needed.
- """
+def _requirement_checks(job):
+ """Show actual evidence and unresolved requirements separately."""
  if not isinstance(job,dict):return []
  text=str(job.get('description') or '')
  status=job.get('license_status') or 'not_mentioned'
- if status=='required':lic=('block','Obligatoriskt B-körkort identifierat')
- elif status=='conflict':lic=('review','Motstridiga uppgifter om körkort')
- elif status=='not_required':lic=('ok','Annonsdata anger inget obligatoriskt körkort')
- elif status=='optional':lic=('ok','Körkort anges som meriterande eller inte styrkt som krav')
- elif status=='forklift':lic=('review','Truckkort nämns; B-körkort inte verifierat')
- else:lic=('review','Obligatoriskt B-körkort kan inte uteslutas')
- experience=('review','Erfarenhetskrav behöver kontrolleras i originalannonsen')
- if not text.strip():experience=('unknown','Annonsbeskrivning saknas; erfarenhetskrav okända')
- # A long description is not itself proof that Kevin satisfies experience criteria.
+ licence={
+  'required':('block','Obligatoriskt körkort identifierat','Annonsdata anger krav på körkort'),
+  'conflict':('review','Motstridiga uppgifter om körkort','Strukturerat obligatoriskt krav motsägs av meriterande/ej krav i annonstext; kontrollera originalannonsen'),
+  'not_required':('ok','Strukturerad annonsdata anger inte obligatoriskt körkort','Kravet kan fortfarande behöva dubbelkontrolleras i originalannonsen'),
+  'optional':('review','Körkort nämns som meriterande eller utan styrkt krav','Detta är inte ett verifierat obligatoriskt krav'),
+  'forklift':('review','Truckkort nämns','Truckkort och B-körkort är olika behörigheter'),
+  'not_mentioned':('review','Inget obligatoriskt körkort identifierat i tillgängliga uppgifter','Avsaknad av uppgift är inte ett bevis för att körkort inte krävs')
+ }.get(status,('review','Körkortskrav behöver kontrolleras','Otillräcklig information'))
+ experience=_experience_evidence(text)
  extent=job.get('employment_extent','unknown')
- hours={'full_time':('ok','Heltid enligt annonsdata'),
-        'part_time':('block','Deltid enligt annonsdata'),
-        'unknown':('unknown','Arbetstid anges inte säkert')}.get(extent,('unknown','Arbetstid anges inte säkert'))
+ hours={'full_time':('ok','Heltid enligt annonsdata','Omfattning angiven som heltid'),
+        'part_time':('block','Deltid enligt annonsdata','Bekräftad deltid sorteras bort'),
+        'unknown':('unknown','Arbetstid anges inte säkert','Kontrollera originalannonsen')}.get(extent,('unknown','Arbetstid okänd',''))
  application=job.get('application') or {}
- application_status=('ok','Ansökningsadress eller länk finns i annonsdata') if application.get('type') in ('email','external') and (application.get('email') or application.get('url')) else ('review','Ansökningssätt behöver kontrolleras')
- description=('ok','Annonsbeskrivning tillgänglig') if len(text.strip())>=45 else ('unknown','Fullständig annonsbeskrivning saknas')
- return [dict(name=name,status=value[0],message=value[1]) for name,value in (
-   ('Körkort',lic),('Erfarenhet',experience),('Arbetstid',hours),
-   ('Ansökan',application_status),('Annonsunderlag',description))]
+ application_status=('ok','Ansökningsadress eller länk finns','Annonsdata anger ansökningssätt') if application.get('type') in ('email','external') and (application.get('email') or application.get('url')) else ('review','Ansökningssätt behöver kontrolleras','Öppna originalannonsen')
+ description=('ok','Annonsbeskrivning tillgänglig','Text finns i sökresultatet') if len(text.strip())>=45 else ('unknown','Fullständig annonsbeskrivning saknas','Otillräckligt underlag för kravbedömning')
+ city=job.get('city') or ''
+ place=('review',f'{city} enligt annonsdata – faktisk arbetsplats ej särskilt verifierad','Ort i annonsens platsfält; arbetsgivarens namn räcker inte som bevis') if city else ('unknown','Arbetsort saknas','Kan inte räkna säkert avstånd')
+ return [dict(name=name,status=value[0],message=value[1],evidence=value[2]) for name,value in (
+   ('Körkort',licence),('Erfarenhet',experience),('Arbetstid',hours),
+   ('Arbetsort',place),('Ansökan',application_status),('Annonsunderlag',description))]
 
 def _attach_requirement_checks(items):
  for item in items:item['requirement_checks']=_requirement_checks(item)
