@@ -1,7 +1,11 @@
-# Jobb4kevin v48
+# Jobb4kevin v49
 
-Uppdaterad från v47. Versionsnummer visas i appen. Körkorts- och erfarenhetsförklaringar syns direkt i kontrollrutan. Exakt avstånd döljs om arbetsplatsen inte uttryckligen är verifierad. Övriga sökfilter och ansökningssimulering är kvar.
+Uppdatering från v48: synligt versionsnummer 49, tydligare källbaserade körkorts- och erfarenhetsförklaringar direkt i varje jobbkort, separat VARFÖR?-underlag, försiktiga arbetsortsuppgifter samt no-store för HTML och API-svar.
 
-Publicera genom att ersätta filer i samma GitHub-repository och distribuera befintlig Render-tjänst nweg. Skapa ingen ny Blueprint.
+Samma CV-prioritering, heltidsfilter, körkortsblockering och maximalt fem möjliga jobb som tidigare. Krav är aldrig automatiskt verifierade enbart utifrån ett CV.
 
-Obs: inga externa jobb-API:er har testats i denna miljö.
+## Render
+Uppdatera befintligt GitHub-repository kopplat till `no-more-clown-king-live-nweg`. Skapa inte en ny Blueprint eller Render-tjänst.
+
+## Säkerhet
+Inga verkliga e-postmeddelanden skickas av appen. Bekräfta krav och ansökningssätt i originalannonsen.
