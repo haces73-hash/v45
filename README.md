@@ -20,3 +20,11 @@ Jobb4kevin v50 – Versionsbunden sökcache, automatisk rensning av gamla sökre
 - En ny svensk kalenderdag får en ny lista med upp till fem jobb; tidigare avböjningar kan återkomma på senare dagar, högst två gånger till.
 - Byte av sökinställningar ger en egen fast lista för de inställningarna.
 - Den fasta listan, historik och avböjningar sparas lokalt i samma webbläsare.
+
+## v54 – Kevins uppdaterade CV och personliga brev
+- PDF- och Word-kopior av godkänt personligt brev och nytt CV utan körkortsuppgift ingår under static/ och kan öppnas från startsidan.
+- Nya genomförda utbildningar och kompetenser vägs in som en begränsad positiv matchningssignal när annonstexten nämner dem. De ersätter inte kontroll av obligatoriska krav.
+- Erfarenhetstexten anger byggutbildning Movant avslutad 6 november 2026.
+- Körkortsfilter är kvar internt men ingen uppgift om avsaknad av körkort skrivs i CV.
+- v53-regeln om fast lista och NEJ TACK utan automatisk påfyllning behålls.
+- Obs: v54 uppdaterar lokal sökcache, men bevarar v53:s fasta dagslista samt ansöknings- och avböjningshistorik.

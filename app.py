@@ -324,6 +324,26 @@ def is_blocked_employer(ad):
   except ValueError:pass
  return False
 
+# Genomförda utbildningar och verifierade kompetenser enligt Kevins uppdaterade CV.
+# Nyckelorden är endast positiva matchningssignaler, inte intyg om särskilda arbetsgivarkrav.
+KEVIN_SKILLS={
+ 'Säkra lyft':r'(?i)säkra\s+lyft|säkert\s+lyft|lyftarbete',
+ 'Liftutbildning 1a/1b/3a/3b':r'(?i)liftutbildning|liftkort|mobila\s+arbetsplattformar|saxlift|bomlift',
+ 'Fallskydd':r'(?i)fallskydd',
+ 'APV / Arbete på väg':r'(?i)arbete\s+på\s+väg|\bapv\b|\bsbsv\b',
+ 'Damm och kvarts':r'(?i)kvartsdamm|kvarts|dammhantering',
+ 'Brandfarliga ämnen':r'(?i)brandfarliga\s+(?:ämnen|varor)',
+ 'Safe Construction Training':r'(?i)safe\s+construction|byggbranschens\s+säkerhetsutbildning',
+ 'HLR och L-ABC':r'(?i)\bhlr\b|\bl-abc\b|första\s+hjälpen',
+ 'MIG/MAG-svetsning':r'(?i)\bmig\b|\bmag\b|mig[/-]mag',
+ 'AutoCAD och ritningsarbete':r'(?i)autocad|cad.ritning|ritningsarbete',
+ 'Möbeltillverkning och snickeri':r'(?i)möbeltillverkning|möbelsnickeri|möbelproduktion',
+ 'Microsoft Office':r'(?i)microsoft\s+office|officepaketet',
+ 'Engelska':r'(?i)engelska|english',
+}
+def matching_skills(text):
+ return [name for name,pattern in KEVIN_SKILLS.items() if re.search(pattern,text or '')]
+
 def score_job(j,full_cv=False):
  if reject_reason(j,full_cv):return None
  title=(j.get('title') or '').casefold()
@@ -347,6 +367,9 @@ def score_job(j,full_cv=False):
  else:groups.sort(key=lambda x:((FULL_PRIORITY if full_cv else PRIORITY).index(x[0]),-x[1]))
  score=groups[0][1]
  if POSITIVE.search(desc):score+=6
+ skills=matching_skills(desc)
+ score+=min(12,3*len(skills))
+ j['cv_skills_matched']=skills
  if MANDATORY_EXPERIENCE.search(desc):score-=28
  if j.get('license_status')=='unclear':score-=8
  if j.get('verification_status')=='unverified':score-=35
@@ -359,7 +382,7 @@ def score_job(j,full_cv=False):
  except ValueError:pass
  if not desc:score-=15
  j['match_score']=round(score,1)
- j['match_reason']='CV-match: '+groups[0][0]+(' · kontrollera erfarenhetskrav' if MANDATORY_EXPERIENCE.search(desc) else '')
+ j['match_reason']='CV-match: '+groups[0][0]+(' · relevanta kompetenser: '+', '.join(skills[:3]) if skills else '')+(' · kontrollera erfarenhetskrav' if MANDATORY_EXPERIENCE.search(desc) else '')
  j['cv_match_area']=groups[0][0]
  j['priority']=(FULL_PRIORITY if full_cv else PRIORITY).index(groups[0][0])+1
  return j
@@ -637,13 +660,13 @@ def _experience_evidence(text):
   m=re.search(pattern,text)
   if m:
    years=int(m.group(1))
-   return ('review',f'Annonsen nämner {years} års erfarenhet – uppfyllandet ej verifierat',f'Annonsens uttryckliga uppgift: {years} år. Kevins CV visar träutbildning och pågående byggutbildning, men styrker inte automatiskt just detta krav.')
+   return ('review',f'Annonsen nämner {years} års erfarenhet – uppfyllandet ej verifierat',f'Annonsens uttryckliga uppgift: {years} år. Kevins CV visar träutbildning, snickerierfarenhet och byggutbildning (Movant, 6 november 2026), men styrker inte automatiskt just detta krav.')
  # Only quote a bounded clause; avoid interpreting experience described as a benefit as a must-have.
  m=re.search(r'(?i)(?:erfarenhet av|erfarenhet från|erfarenhet inom|yrkesvana|yrkesbevis|gesällbrev|självständigt arbete)[^\n.!?]{0,105}',text)
  if m:
   excerpt=re.sub(r'\s+',' ',m.group(0)).strip()[:115]
-  return ('review','Annonsen nämner: ”'+excerpt+'”','Jämför formuleringen med Kevins träutbildning, tidigare träproduktion och pågående byggutbildning. Kravet är inte automatiskt uppfyllt.')
- return ('review','Inget konkret erfarenhetskrav hittades i tillgänglig annonstext','Kevin har träutbildning, erfarenhet av träproduktion och pågående byggutbildning. Det bekräftar inte att eventuella oskrivna krav uppfylls.')
+  return ('review','Annonsen nämner: ”'+excerpt+'”','Jämför formuleringen med Kevins träutbildning, tidigare träproduktion och avslutad byggutbildning (Movant, 6 november 2026). Kravet är inte automatiskt uppfyllt.')
+ return ('review','Inget konkret erfarenhetskrav hittades i tillgänglig annonstext','Kevin har träutbildning, erfarenhet av träproduktion och avslutad byggutbildning (Movant, 6 november 2026). Det bekräftar inte att eventuella oskrivna krav uppfylls.')
 
 def _license_evidence(job,text):
  status=job.get('license_status') or 'not_mentioned'
