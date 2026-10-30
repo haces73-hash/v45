@@ -382,7 +382,9 @@ def score_job(j,full_cv=False):
  except ValueError:pass
  if not desc:score-=15
  j['match_score']=round(score,1)
- j['match_reason']='CV-match: '+groups[0][0]+(' · relevanta kompetenser: '+', '.join(skills[:3]) if skills else '')+(' · kontrollera erfarenhetskrav' if MANDATORY_EXPERIENCE.search(desc) else '')
+ # Show profession-specific skills first; general English/Office matches should not obscure them.
+ professional=[x for x in skills if x not in ('Engelska','Microsoft Office')]
+ j['match_reason']='CV-match: '+groups[0][0]+(' · relevanta yrkeskompetenser: '+', '.join(professional[:3]) if professional else '')+(' · kontrollera erfarenhetskrav' if MANDATORY_EXPERIENCE.search(desc) else '')
  j['cv_match_area']=groups[0][0]
  j['priority']=(FULL_PRIORITY if full_cv else PRIORITY).index(groups[0][0])+1
  return j

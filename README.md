@@ -28,3 +28,13 @@ Jobb4kevin v50 – Versionsbunden sökcache, automatisk rensning av gamla sökre
 - Körkortsfilter är kvar internt men ingen uppgift om avsaknad av körkort skrivs i CV.
 - v53-regeln om fast lista och NEJ TACK utan automatisk påfyllning behålls.
 - Obs: v54 uppdaterar lokal sökcache, men bevarar v53:s fasta dagslista samt ansöknings- och avböjningshistorik.
+
+## v55
+- BEHÖVER KONTROLLERAS visas som hopfällbar sektion (stängd från början) med antal extra annonser. Samtliga kravkontroller och originalannonslänkar finns kvar.
+- Dokumentknappar för CV och personligt brev visas i mobilvänligt rutnät, en knapp per rad på smala skärmar.
+- CV-matchtext prioriterar dokumenterade yrkeskompetenser framför allmänna språk- och Office-kunskaper; inga nya kompetenser påstås utan stöd i annonsen.
+- Fasta dagslistan, NEJ TACK och ansökningshistorik är oförändrade.
+
+
+## Version 56 – jobb-anpassade dokument
+På varje jobbkort finns ANPASSA CV OCH BREV. Appen skapar två **redigerbara förslag** från dokumenterade uppgifter och de kompetenser som faktiskt matchar annonsens text. Originaldokumenten i static/ ändras inte. Förslagen kan laddas ned i Word-kompatibelt .doc-format eller skrivas ut/sparas som PDF via webbläsaren. Inga mejl skickas och ingen ansökan markeras automatiskt. Användaren måste kontrollera fakta, originalannons, kontaktuppgifter och anställningsperioder. Ingen generativ AI används; texten bygger på regelbaserad kompetensmatchning.
