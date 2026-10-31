@@ -125,7 +125,7 @@ async function loadJobs(force=false){
  const fulltime=$('fulltime').value,profile=$('profile').value,region=$('region').value,city=region==='radius'?$('city').value:'Halmstad',rad=region==='radius'?$('radius').value:'0',day=todaySE();
  let cached=null;try{cached=JSON.parse(localStorage.getItem(DAILY_KEY)||'null')}catch(e){}
  if(!force&&cached&&cached.day===day&&cached.city===city&&cached.radius===rad&&cached.region===region&&cached.profile===profile&&cached.fulltime===fulltime&&Array.isArray(cached.jobs)){
-  allCandidates=cached.jobs;reviewCandidates=cached.needs_review||[];showLastSearch(cached.fetched_at);selectBestFive();showDiagnostics(cached);showLocationShapes(cached.diagnostics||{});showLicenseChecks(cached.diagnostics||{});return;
+  allCandidates=cached.jobs;reviewCandidates=cached.needs_review||[];unknownCandidates=cached.unknown_location||[];showLastSearch(cached.fetched_at);selectBestFive();showDiagnostics(cached);showLocationShapes(cached.diagnostics||{});showLicenseChecks(cached.diagnostics||{});return;
  }
  $('status').textContent='Söker fram dagens bästa jobbannonser …';$('jobs').innerHTML='';$('locationDiagnostics').innerHTML='<h3 style="margin-top:0;color:#dfff00">TEKNISK PLATSDIAGNOSTIK</h3><p class="small">Analyserar platsfält …</p>';
  try{
@@ -136,8 +136,8 @@ async function loadJobs(force=false){
   if(documentPreviewActive||requestSequence!==jobRequestSequence)return;
   if(!Array.isArray(data.jobs))throw Error('Ogiltigt svar från jobbsökningen');
   // Keep candidate data for the fixed daily shortlist; do not replenish dismissed cards.
-  allCandidates=data.jobs;reviewCandidates=data.needs_review||[];const fetchedAt=new Date().toISOString();showLastSearch(fetchedAt);
-  localStorage.setItem(DAILY_KEY,JSON.stringify({fetched_at:fetchedAt,day,city,radius:rad,region,profile,fulltime,jobs:allCandidates,needs_review:reviewCandidates,match_counts:data.match_counts,diagnostics:data.diagnostics,search_seconds:data.search_seconds}));
+  allCandidates=data.jobs;reviewCandidates=data.needs_review||[];unknownCandidates=data.unknown_location||[];const fetchedAt=new Date().toISOString();showLastSearch(fetchedAt);
+  localStorage.setItem(DAILY_KEY,JSON.stringify({fetched_at:fetchedAt,day,city,radius:rad,region,profile,fulltime,jobs:allCandidates,needs_review:reviewCandidates,unknown_location:unknownCandidates,match_counts:data.match_counts,diagnostics:data.diagnostics,search_seconds:data.search_seconds}));
   selectBestFive();
   showDiagnostics(data);showLocationShapes(data.diagnostics||{});showLicenseChecks(data.diagnostics||{});
   if(data.errors?.length)$('status').textContent+=' Vissa källor gav fel: '+data.errors.slice(0,2).join(' | ');
