@@ -891,7 +891,10 @@ def _jobs_impl():
      found.pop(key,None)
     else:found[key]=checked
  def collect_unknown(ad):
-  if not ad or not ad.get('id') or ad.get('license_status')=='required':return
+  if not ad or not ad.get('id'):return
+  if ad.get('license_status')=='required':
+   unknown_stats['korkortskrav']+=1
+   return
   if is_blocked_employer(ad):return
   if only_fulltime and ad.get('employment_extent')=='part_time':return
   if ad.get('lat') is not None and ad.get('lon') is not None:return
