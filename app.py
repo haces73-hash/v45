@@ -974,13 +974,27 @@ def jobs():
  result=qualified[:80]
  return jsonify({'jobs':_attach_requirement_checks(result),'needs_review':_attach_requirement_checks(needs_review[:80]),'fulltime_only':only_fulltime,'match_counts':match_counts(found),'diagnostics':summary(),'source':', '.join(sorted(sources_ok)) or 'Inga källor nåddes','sources':sorted(sources_ok),'city':city,'radius':radius,'errors':errors[:8], 'note':'Körkortsfilter: obligatoriskt bilkörkort utesluts; meriterande truckkort kan tillåtas. Externa annonser kan ha förkortad text och måste dubbelkollas. JobSearch och JobAd Links används. Annonser utan GPS kan tas med när kommunen är känd; avståndet är då ungefärligt. Externa annonser kan ha förkortade beskrivningar. Kontrollera körkort och andra krav i originalannonsen.'})
 
+# Explicit document endpoints: PDFs preview in the browser; DOCX downloads as real files.
+@app.get('/documents/<kind>/<format>')
+def documents(kind, format):
+ files = {
+  ('cv','pdf'):('Kevin_Martini_CV.pdf','application/pdf',False),
+  ('cv','word'):('Kevin_Martini_CV.docx','application/vnd.openxmlformats-officedocument.wordprocessingml.document',True),
+  ('brev','pdf'):('Kevins_personliga_brev.pdf','application/pdf',False),
+  ('brev','word'):('Kevins_personliga_brev.docx','application/vnd.openxmlformats-officedocument.wordprocessingml.document',True),
+ }
+ item=files.get((kind,format))
+ if not item:return jsonify(error='Dokumentet finns inte'),404
+ name,mime,download=item
+ return send_from_directory(app.static_folder,name,mimetype=mime,as_attachment=download,download_name=name,conditional=False)
+
 @app.get('/health')
 def health():return jsonify(status='ok')
 if __name__=='__main__':app.run(host='0.0.0.0',port=int(os.getenv('PORT','5000')))
 
 @app.after_request
 def _v50_no_cache(response):
- if response.mimetype in ('text/html','application/json') or response.path.startswith('/static/'):
+ if response.mimetype in ('text/html','application/json') or response.path.startswith('/static/') or response.path.startswith('/documents/'):
   response.headers['Cache-Control']='no-store, no-cache, must-revalidate, max-age=0'
   response.headers['Pragma']='no-cache'
   response.headers['Expires']='0'

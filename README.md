@@ -1,40 +1,10 @@
-Jobb4kevin v50 – Versionsbunden sökcache, automatisk rensning av gamla sökresultat, knapp för sökcache-rensning och tidsstämpel för senaste lyckade sökning. Historik och avböjanden behålls. Uppdatera befintlig Render-tjänst, skapa ingen ny Blueprint.
+# Jobb4kevin v58
 
-## v51
-- Knappen heter MARKERA SOM ANSÖKT tills användaren själv bekräftar en skickad ansökan.
-- NEJ TACK döljer jobbkortet direkt, även efter en manuell omsökning samma svenska kalenderdag.
-- Samma annons kan visas igen en annan kalenderdag, högst tills den avböjts tre gånger.
-- Efter tredje avböjningen döljs annonsen permanent på denna enhet/webbläsare.
-- Historik och avböjningar ligger kvar vid rensning av sökcache.
-- Äldre avböjningar migreras utan att deras antal förloras.
+Felsökning av originaldokument på iPhone:
+- Alla fyra originaldokument är med i static/.
+- Originalknappar använder nu direkta statiska filadresser i samma flik i stället för särskilda dokument-endpoints och nya flikar.
+- Word-länkar saknar HTML download-attribut för bättre kompatibilitet med iOS filvisning.
+- De gamla /documents/...-adresserna finns kvar som alternativ.
+- Ingen ändring av CV/brev-innehåll eller jobbflöde.
 
-## v52
-- NEJ TACK ritar alltid om jobblistan, även när annonsen redan avböjts samma dag.
-- Dagens avböjning räknas bara en gång och samma jobb återkommer inte förrän nästa dag.
-- Historik och tre-avböjningar-regeln bevaras.
-
-## v53
-- Dagens fem bäst matchade jobb är en fast lista per kalenderdag (svensk tid) och valda sökinställningar.
-- NEJ TACK tar bort jobbkortet direkt, utan automatisk påfyllning. Två avböjningar lämnar tre av fem jobb kvar.
-- Manuell sökning och rensning av sökcache fyller inte på dagens fasta lista.
-- En ny svensk kalenderdag får en ny lista med upp till fem jobb; tidigare avböjningar kan återkomma på senare dagar, högst två gånger till.
-- Byte av sökinställningar ger en egen fast lista för de inställningarna.
-- Den fasta listan, historik och avböjningar sparas lokalt i samma webbläsare.
-
-## v54 – Kevins uppdaterade CV och personliga brev
-- PDF- och Word-kopior av godkänt personligt brev och nytt CV utan körkortsuppgift ingår under static/ och kan öppnas från startsidan.
-- Nya genomförda utbildningar och kompetenser vägs in som en begränsad positiv matchningssignal när annonstexten nämner dem. De ersätter inte kontroll av obligatoriska krav.
-- Erfarenhetstexten anger byggutbildning Movant avslutad 6 november 2026.
-- Körkortsfilter är kvar internt men ingen uppgift om avsaknad av körkort skrivs i CV.
-- v53-regeln om fast lista och NEJ TACK utan automatisk påfyllning behålls.
-- Obs: v54 uppdaterar lokal sökcache, men bevarar v53:s fasta dagslista samt ansöknings- och avböjningshistorik.
-
-## v55
-- BEHÖVER KONTROLLERAS visas som hopfällbar sektion (stängd från början) med antal extra annonser. Samtliga kravkontroller och originalannonslänkar finns kvar.
-- Dokumentknappar för CV och personligt brev visas i mobilvänligt rutnät, en knapp per rad på smala skärmar.
-- CV-matchtext prioriterar dokumenterade yrkeskompetenser framför allmänna språk- och Office-kunskaper; inga nya kompetenser påstås utan stöd i annonsen.
-- Fasta dagslistan, NEJ TACK och ansökningshistorik är oförändrade.
-
-
-## Version 56 – jobb-anpassade dokument
-På varje jobbkort finns ANPASSA CV OCH BREV. Appen skapar två **redigerbara förslag** från dokumenterade uppgifter och de kompetenser som faktiskt matchar annonsens text. Originaldokumenten i static/ ändras inte. Förslagen kan laddas ned i Word-kompatibelt .doc-format eller skrivas ut/sparas som PDF via webbläsaren. Inga mejl skickas och ingen ansökan markeras automatiskt. Användaren måste kontrollera fakta, originalannons, kontaktuppgifter och anställningsperioder. Ingen generativ AI används; texten bygger på regelbaserad kompetensmatchning.
+Efter publicering, testa direktadresserna /static/Kevin_Martini_CV.pdf och /static/Kevins_personliga_brev.pdf.
