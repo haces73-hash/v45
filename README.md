@@ -31,3 +31,6 @@ PDF-granskning: de två knapparna visas bredvid varandra. PDF-sidor renderas i e
 
 ## v65 – PDF-visning
 PDF.js har nu tidsgränser och en automatisk reservvisning om CDN, worker eller rendering hänger. De två dokumentknapparna ligger kvar sida vid sida. Reservvisningen använder webbläsarens inbyggda PDF-visare och kan bete sig olika på olika telefoner.
+
+## v66 – PDF prioriteras
+När en dokumentförhandsgranskning öppnas pausas nya jobbsökningar i webbläsaren och eventuell pågående jobbförfrågan avbryts på klientsidan. När dokumentet stängs återupptas ingen automatisk sökning; användaren kan söka manuellt. Redan startat serverarbete kan fortsätta tills det avslutas, eftersom avbruten HTTP-begäran inte garanterar att Python-arbetet stoppas. PDF.js och reservvisning från v65 behålls.
