@@ -17,3 +17,5 @@ Health Check Path: /health
 
 OBS: Render Free kan fortfarande sova vid inaktivitet och orsaka lång första laddning.
 Historik som sparas i webbläsaren påverkas inte av serverfilerna, men versionens sökcache förnyas.
+
+Version 61: Förtydligad Word-knapp för originalets personliga brev. Render-stabilisering från v60 oförändrad.
