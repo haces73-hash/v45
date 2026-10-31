@@ -1002,7 +1002,19 @@ def _jobs_impl():
      for ad in ads:add_jobsearch(ad,region)
     except (requests.RequestException,ValueError,KeyError,TypeError) as e:
      if len(errors)<8:errors.append('JobSearch: '+str(e)[:110])
-  ranked=sorted(found.values(),key=lambda j:(j['priority'],-j['match_score'],j['km'] if j['km'] is not None else 9999,j['id']))
+  def outside_radius_safety(ad):
+  # Final check for ALL three groups, including municipality genitives in titles.
+  if not radius:return False
+  title=str(ad.get('title') or '').casefold()
+  place=str(ad.get('city') or '').casefold()
+  distant=('borgholm','skellefteå','karlskrona','umeå','luleå','piteå','sundsvall','östersund','gävle','uppsala','stockholm','västerås','örebro','linköping','norrköping','jönköping','kalmar','växjö','kristianstad','malmö','lund','trelleborg','ystad')
+  for name in distant:
+   pattern=r'(?<!\\w)'+re.escape(name)+r'(?:s(?=\\s+kommun)|(?=\\W|$))'
+   if re.search(pattern,title) or re.search(pattern,place):return True
+  coords=_place_coords(place)
+  if coords and dist(*CITIES[city],*coords)>radius:return True
+  return False
+ ranked=sorted((j for j in found.values() if not outside_radius_safety(j)),key=lambda j:(j['priority'],-j['match_score'],j['km'] if j['km'] is not None else 9999,j['id']))
   for item in ranked:
    ft=_fulltime_bucket(item,only_fulltime)
    if ft=='exclude':
@@ -1072,7 +1084,7 @@ def _jobs_impl():
  qualified=[j for j in ranked if j['review_bucket']=='qualified']
  needs_review=[j for j in ranked if j['review_bucket']=='needs_review']
  result=qualified[:80]
- unknown_ranked=sorted((v for k,v in unknown_places.items() if k not in found),key=lambda j:(j['priority'],-j['match_score'],str(j['id'])))[:5]
+ unknown_ranked=sorted((v for k,v in unknown_places.items() if k not in found and not outside_radius_safety(v)),key=lambda j:(j['priority'],-j['match_score'],str(j['id'])))[:5]
  diagnostics['unknown_review_counts']=dict(unknown_stats)
  diagnostics['unknown_review_counts']['visas']=len(unknown_ranked)
  search_seconds=round(time.monotonic()-started_at,1)
