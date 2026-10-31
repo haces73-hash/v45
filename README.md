@@ -19,3 +19,6 @@ OBS: Render Free kan fortfarande sova vid inaktivitet och orsaka lång första l
 Historik som sparas i webbläsaren påverkas inte av serverfilerna, men versionens sökcache förnyas.
 
 Version 61: Förtydligad Word-knapp för originalets personliga brev. Render-stabilisering från v60 oförändrad.
+
+
+Version 62: Mobil PDF-granskning med synlig Tillbaka-knapp, Skriv ut PDF, Dela/Spara PDF och Öppna externt. iPhone-utskrift kan kräva Safari/Braves delningsmeny; utskrift från inbäddad PDF beror på webbläsaren. Render-stabilisering från v60/v61 oförändrad.
