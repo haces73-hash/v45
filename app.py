@@ -194,9 +194,23 @@ def _coordinates(*sources):
  return None,None
 SCB_MUNICIPALITIES={'1380':'Halmstad','1382':'Falkenberg','1383':'Varberg','1381':'Laholm','1315':'Hylte','1384':'Kungsbacka','1278':'Båstad','1292':'Ängelholm','1283':'Helsingborg'}
 def _municipality_value(value):
- if isinstance(value,dict):return _municipality_value(value.get('label') or value.get('name') or value.get('value'))
+ if isinstance(value,dict):
+  for key in ('label','name','name_sv','municipality','municipality_name','municipality_code','code','value'):
+   result=_municipality_value(value.get(key))
+   if result:return result
+  return ''
+ if isinstance(value,int) and not isinstance(value,bool):value=str(value)
  if isinstance(value,str) and value.strip() in SCB_MUNICIPALITIES:return SCB_MUNICIPALITIES[value.strip()]
  return _known_place(value)
+
+def _workplace_places(entry):
+ if not isinstance(entry,dict):return []
+ values=[entry.get(k) for k in ('municipality','municipality_name','municipality_code','municipality_concept_id','city','locality','workplace_city')]
+ for key in ('address','workplace_address','location'):
+  nested=entry.get(key)
+  if isinstance(nested,dict):
+   values.extend(nested.get(k) for k in ('municipality','municipality_name','municipality_code','city','locality'))
+ return values
 def _location_options(ad,text=''):
  entries=[]
  for key in ('workplace_addresses','workplaces','locations'):
@@ -209,9 +223,9 @@ def _location_options(ad,text=''):
  options=[];seen=set()
  for entry in entries:
   lat,lon=_coordinates(entry)
-  name=next((_municipality_value(entry.get(k)) for k in ('municipality','municipality_name','municipality_code','city','locality') if _municipality_value(entry.get(k))), '')
+  name=next((_municipality_value(v) for v in _workplace_places(entry) if _municipality_value(v)), '')
   if not name and entry is ad:
-   name=next((_municipality_value(ad.get(k)) for k in ('municipality','municipality_code','city') if _municipality_value(ad.get(k))), '')
+   name=next((_municipality_value(v) for v in _workplace_places(ad) if _municipality_value(v)), '')
   if not name and lat is None:continue
   signature=(name,lat,lon)
   if signature not in seen:
@@ -224,9 +238,12 @@ def _location_options(ad,text=''):
 
 def _city_from_ad(ad,addr,text):
  workplace=ad.get('workplace') or {}
- if not isinstance(workplace,dict):workplace={}
- fields=[addr.get('municipality'),workplace.get('municipality'),ad.get('municipality'),addr.get('municipality_name'),ad.get('municipality_name'),addr.get('city'),workplace.get('city'),ad.get('city'),addr.get('locality'),ad.get('workplace_city')]
- known=next((_known_place(v) for v in fields if _known_place(v)), '')
+ fields=_workplace_places(addr)+_workplace_places(workplace)+_workplace_places(ad)
+ for key in ('workplace_addresses','workplaces','locations'):
+  entries=ad.get(key)
+  if isinstance(entries,list):
+   for entry in entries:fields.extend(_workplace_places(entry))
+ known=next((_municipality_value(v) for v in fields if _municipality_value(v)), '')
  fallback=next((_place_name(v) for v in fields if _place_name(v)), '')
  return workplace_from_text(text,known or fallback)
 
@@ -475,15 +492,15 @@ def _location_diagnosis(raw,parsed):
  if not isinstance(addr,dict):addr={}
  if parsed and parsed.get('lat') is not None and parsed.get('lon') is not None:return 'GPS finns'
  if parsed and _place_coords(parsed.get('city')):return 'Känd ort'
- fields=[addr.get(k) for k in ('municipality','city','municipality_name','locality','region','street_address')]
- fields.extend(raw.get(k) for k in ('municipality','city','workplace_city'))
+ fields=_workplace_places(addr)+[addr.get(k) for k in ('region','street_address')]
+ fields.extend(_workplace_places(raw))
  workplace=raw.get('workplace')
- if isinstance(workplace,dict):fields.extend(workplace.get(k) for k in ('municipality','city','locality'))
+ if isinstance(workplace,dict):fields.extend(_workplace_places(workplace))
  for key in ('workplace_addresses','workplaces','locations'):
   values=raw.get(key)
   if isinstance(values,list):
    for item in values:
-    if isinstance(item,dict):fields.extend(item.get(k) for k in ('municipality','municipality_code','city','locality','coordinates'))
+    if isinstance(item,dict):fields.extend(_workplace_places(item)+[item.get('coordinates')])
  if not any(v is not None and v!='' for v in fields):return 'Kommun/ort saknas i API-svaret'
  if any(_place_name(v) for v in fields):return 'Ortnamn finns men känns inte igen'
  return 'Platsfält finns men kan inte tolkas'
