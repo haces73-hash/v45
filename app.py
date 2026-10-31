@@ -200,7 +200,7 @@ def _municipality_value(value):
    if result:return result
   return ''
  if isinstance(value,int) and not isinstance(value,bool):value=str(value)
- if isinstance(value,str) and value.strip() in SCB_MUNICIPALITIES:return SCB_MUNICIPALITIES[value.strip()]
+ if isinstance(value,str) and swedish_places.municipality_from_code(value.strip()):return swedish_places.municipality_from_code(value.strip())
  return _known_place(value)
 
 def _workplace_places(entry):
@@ -467,6 +467,7 @@ def _normalize_key(j):
  return ('job',j['title'].strip().casefold(),j['company'].strip().casefold(),j['city'].strip().casefold())
 # Municipality centers for approximate distance only when a listing has no coordinates.
 # A municipality-wide listing is marked approximate, never precise.
+import place_database as swedish_places
 MUNICIPALITY_CENTERS={
  'halmstad':(56.6745,12.8568),'falkenberg':(56.9055,12.4912),
  'varberg':(57.1056,12.2508),'laholm':(56.5121,13.0437),
@@ -481,10 +482,8 @@ MUNICIPALITY_CENTERS={
  'borås':(57.7210,12.9401),'våxtorp':(56.4225,13.1217)
 }
 def _place_coords(name):
- n=(name or '').strip().casefold()
- for key,coords in MUNICIPALITY_CENTERS.items():
-  if n==key or n.startswith(key+' ') or n.endswith(' '+key):return coords
- return None
+ return swedish_places.coordinates(name)
+
 def _location_diagnosis(raw,parsed):
  """Diagnose original source fields without exposing the original address."""
  if not isinstance(raw,dict):return 'Ogiltigt API-objekt'
