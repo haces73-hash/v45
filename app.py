@@ -970,7 +970,7 @@ def _jobs_impl():
   needs_review=[j for j in ranked if j['review_bucket']=='needs_review']
   result=qualified[:80]
   search_seconds=round(time.monotonic()-started_at,1)
-  return jsonify({'jobs':_attach_requirement_checks(result),'needs_review':_attach_requirement_checks(needs_review[:80]),'search_seconds':search_seconds,'fulltime_only':only_fulltime,'match_counts':match_counts(found),'diagnostics':summary(),'region':region,'source':', '.join(sorted(sources_ok)) or 'Inga källor nåddes','sources':sorted(sources_ok),'errors':errors,'note':'Körkorts- och seniorfilter: obligatoriska körkort och tydliga seniorroller utesluts. Halland omfattar sex kommuner. Södra Sverige omfattar här Halland, Skåne, Blekinge, Kronoberg, Kalmar, Jönköping och Västra Götaland. Jobbsökningarna görs via representativa orter; alla kommuner söks inte individuellt. Högst fem visas i appen.'})
+  return jsonify({'jobs':_attach_requirement_checks(result),'needs_review':_attach_requirement_checks(needs_review[:80]),'unknown_location':_attach_requirement_checks(unknown_ranked),'search_seconds':search_seconds,'fulltime_only':only_fulltime,'match_counts':match_counts(found),'diagnostics':summary(),'region':region,'source':', '.join(sorted(sources_ok)) or 'Inga källor nåddes','sources':sorted(sources_ok),'errors':errors,'note':'Körkorts- och seniorfilter: obligatoriska körkort och tydliga seniorroller utesluts. Halland omfattar sex kommuner. Södra Sverige omfattar här Halland, Skåne, Blekinge, Kronoberg, Kalmar, Jönköping och Västra Götaland. Jobbsökningarna görs via representativa orter; alla kommuner söks inte individuellt. Högst fem visas i appen.'})
  from concurrent.futures import ThreadPoolExecutor,as_completed
  terms=search_terms(full_cv)
  def fetch_query(task):
@@ -1026,6 +1026,7 @@ def _jobs_impl():
  qualified=[j for j in ranked if j['review_bucket']=='qualified']
  needs_review=[j for j in ranked if j['review_bucket']=='needs_review']
  result=qualified[:80]
+ unknown_ranked=sorted((v for k,v in unknown_places.items() if k not in found),key=lambda j:(j['priority'],-j['match_score'],str(j['id'])))[:5]
  search_seconds=round(time.monotonic()-started_at,1)
  return jsonify({'jobs':_attach_requirement_checks(result),'needs_review':_attach_requirement_checks(needs_review[:80]),'search_seconds':search_seconds,'fulltime_only':only_fulltime,'match_counts':match_counts(found),'diagnostics':summary(),'source':', '.join(sorted(sources_ok)) or 'Inga källor nåddes','sources':sorted(sources_ok),'city':city,'radius':radius,'errors':errors[:8], 'note':'Körkortsfilter: obligatoriskt bilkörkort utesluts; meriterande truckkort kan tillåtas. Externa annonser kan ha förkortad text och måste dubbelkollas. JobSearch och JobAd Links används. Annonser utan GPS kan tas med när kommunen är känd; avståndet är då ungefärligt. Externa annonser kan ha förkortade beskrivningar. Kontrollera körkort och andra krav i originalannonsen.'})
 
