@@ -838,7 +838,7 @@ def _jobs_impl():
  except ValueError:radius=30
  radius=radius if radius in (0,10,30,50,100) else 30
  from collections import defaultdict
- found={};unknown_places={};errors=[];sources_ok=set();external_candidates={}
+ found={};unknown_places={};unknown_stats=defaultdict(int);errors=[];sources_ok=set();external_candidates={}
  diagnostics={'license_conflicts':0,'license_block_rows':[],'license_evidence':defaultdict(int),'enrichment_by_category':defaultdict(lambda:{'attempted':0,'completed':0,'license_rejected':0}),'fulltime_excluded':set(),'fulltime_unknown':set(),'source_id_attempted':set(),'source_id_missing':0,'source_id_completed':0,'source_id_failed':0,'source_id_mismatch':0,'source_id_license_rejected':0,'location_samples':defaultdict(dict),'seen_ids':set(),'rejected':defaultdict(set),'missing_license':0,'source_seen':defaultdict(set),'unknown_by_source':defaultdict(set),'detail_attempt_ids':set(),'detail_resolved_ids':set(),'detail_failed_ids':set(),'unknown_reasons':defaultdict(set)}
  def record_sample(raw,parsed,source):
   if parsed and (parsed.get('lat') is not None or _place_coords(parsed.get('city'))):return
