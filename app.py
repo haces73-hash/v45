@@ -891,15 +891,16 @@ def _jobs_impl():
      found.pop(key,None)
     else:found[key]=checked
  def named_workplace(ad):
-  # Use the workplace field first; a title can supply a city when the field is absent.
-  city=str(ad.get('city') or '').strip()
-  if city and city.casefold() not in ('okänd','okänt','ej angiven',''):
-   return city
+  # A generic or missing city must not hide a concrete city in the title.
+  city_value=str(ad.get('city') or '').strip()
   title=str(ad.get('title') or '')
-  names=tuple(MUNICIPALITY_CENTERS)+('skellefteå','karlskrona','umeå','luleå','piteå','sundsvall','östersund','gävle','uppsala','stockholm','västerås','örebro','linköping','norrköping','jönköping','kalmar','växjö','kristianstad','malmö','lund','trelleborg','ystad')
-  for name in sorted(names,key=len,reverse=True):
+  far=('skellefteå','karlskrona','umeå','luleå','piteå','sundsvall','östersund','gävle','uppsala','stockholm','västerås','örebro','linköping','norrköping','jönköping','kalmar','växjö','kristianstad','malmö','lund','trelleborg','ystad')
+  names=tuple(MUNICIPALITY_CENTERS)+far
+  for name in sorted(set(names),key=len,reverse=True):
    if re.search(r'(?i)(?<!\\w)'+re.escape(name)+r'(?!\\w)',title):
     return name.title()
+  if city_value.casefold() not in ('','okänd','okänt','okänd plats','ej angiven','saknas'):
+   return city_value
   return ''
  def workplace_distance_state(ad):
   place=named_workplace(ad)
@@ -908,7 +909,6 @@ def _jobs_impl():
   if coords:
    km=dist(CITIES[city][0],CITIES[city][1],coords[0],coords[1])
    return ('outside' if radius and km>radius else 'inside'),place
-  # Explicitly named distant cities without coordinates in the local municipality table.
   far=('skellefteå','karlskrona','umeå','luleå','piteå','sundsvall','östersund','gävle','uppsala','stockholm','västerås','örebro','linköping','norrköping','jönköping','kalmar','växjö','kristianstad','malmö','lund','trelleborg','ystad')
   if any(re.search(r'(?i)(?<!\\w)'+re.escape(name)+r'(?!\\w)',place) for name in far):
    return 'outside',place
