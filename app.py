@@ -890,20 +890,38 @@ def _jobs_impl():
     if not score_job(checked,full_cv=full_cv):
      found.pop(key,None)
     else:found[key]=checked
- def distant_named_place(ad):
-  # Only use explicit, unambiguous city names from title or workplace metadata.
-  distant=('skellefteå','karlskrona','umeå','luleå','piteå','sundsvall','östersund','gävle','uppsala','stockholm','västerås','örebro','linköping','norrköping','jönköping','kalmar','växjö','kristianstad','malmö','lund','trelleborg','ystad')
-  title=str(ad.get('title') or '').casefold()
-  city=str(ad.get('city') or '').casefold()
-  for place in distant:
-   if re.search(r'(?<!\\w)'+re.escape(place)+r'(?!\\w)',title) or re.search(r'(?<!\\w)'+re.escape(place)+r'(?!\\w)',city):
-    return place.title()
+ def named_workplace(ad):
+  # Use the workplace field first; a title can supply a city when the field is absent.
+  city=str(ad.get('city') or '').strip()
+  if city and city.casefold() not in ('okänd','okänt','ej angiven',''):
+   return city
+  title=str(ad.get('title') or '')
+  names=tuple(MUNICIPALITY_CENTERS)+('skellefteå','karlskrona','umeå','luleå','piteå','sundsvall','östersund','gävle','uppsala','stockholm','västerås','örebro','linköping','norrköping','jönköping','kalmar','växjö','kristianstad','malmö','lund','trelleborg','ystad')
+  for name in sorted(names,key=len,reverse=True):
+   if re.search(r'(?i)(?<!\\w)'+re.escape(name)+r'(?!\\w)',title):
+    return name.title()
   return ''
+ def workplace_distance_state(ad):
+  place=named_workplace(ad)
+  if not place:return 'missing',''
+  coords=_place_coords(place)
+  if coords:
+   km=dist(CITIES[city][0],CITIES[city][1],coords[0],coords[1])
+   return ('outside' if radius and km>radius else 'inside'),place
+  # Explicitly named distant cities without coordinates in the local municipality table.
+  far=('skellefteå','karlskrona','umeå','luleå','piteå','sundsvall','östersund','gävle','uppsala','stockholm','västerås','örebro','linköping','norrköping','jönköping','kalmar','växjö','kristianstad','malmö','lund','trelleborg','ystad')
+  if any(re.search(r'(?i)(?<!\\w)'+re.escape(name)+r'(?!\\w)',place) for name in far):
+   return 'outside',place
+  return 'unrecognized',place
  def collect_unknown(ad):
   if not ad or not ad.get('id'):return
-  distant=distant_named_place(ad)
-  if distant:
+  place_state,place_name=workplace_distance_state(ad)
+  if place_state=='outside':
    unknown_stats['kand_ort_utanfor_omradet']+=1
+   return
+  if place_state=='inside':return
+  if place_state=='unrecognized':
+   unknown_stats['ortnamn_ej_igenkant']+=1
    return
   if ad.get('license_status')=='required':
    unknown_stats['korkortskrav']+=1
