@@ -922,7 +922,7 @@ def _jobs_impl():
    if radius:collect_unknown(ad)
    _add_candidate(ad,found,city,radius,full_cv=full_cv,diagnostics=diagnostics)
  def summary():
-  return {'granskade_unika_annonser':len(diagnostics['seen_ids']),
+  return {'unknown_review_counts':dict(unknown_stats),'granskade_unika_annonser':len(diagnostics['seen_ids']),
           'uteslutna_per_orsak':{k:len(v) for k,v in diagnostics['rejected'].items()},
           'korkortskrav_vid_inlasning':diagnostics['missing_license'],
           'kvalificerade_unika':len(found),
