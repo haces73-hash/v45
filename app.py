@@ -915,6 +915,11 @@ def _jobs_impl():
   if place_state=='unrecognized':
    unknown_stats['ortnamn_ej_igenkant']+=1
    return
+  # A source card without any advert text or workplace metadata cannot be
+  # vetted against the original ad. Do not promote it as a local lead.
+  if not str(ad.get('description') or '').strip() and not str(ad.get('city') or '').strip():
+   unknown_stats['otillrackligt_annonsunderlag']+=1
+   return
   if ad.get('license_status')=='required':
    unknown_stats['korkortskrav']+=1
    return
