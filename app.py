@@ -894,13 +894,17 @@ def _jobs_impl():
   # A generic or missing city must not hide a concrete city in the title.
   city_value=str(ad.get('city') or '').strip()
   title=str(ad.get('title') or '')
-  far=('skellefteå','karlskrona','umeå','luleå','piteå','sundsvall','östersund','gävle','uppsala','stockholm','västerås','örebro','linköping','norrköping','jönköping','kalmar','växjö','kristianstad','malmö','lund','trelleborg','ystad')
+  far=('borgholm','skellefteå','karlskrona','umeå','luleå','piteå','sundsvall','östersund','gävle','uppsala','stockholm','västerås','örebro','linköping','norrköping','jönköping','kalmar','växjö','kristianstad','malmö','lund','trelleborg','ystad')
   names=tuple(MUNICIPALITY_CENTERS)+far
   for name in sorted(set(names),key=len,reverse=True):
    if re.search(r'(?i)(?<!\w)'+re.escape(name)+r'(?!\w)',title):
     return name.title()
   if city_value.casefold() not in ('','okänd','okänt','okänd plats','ej angiven','saknas'):
    return city_value
+  description=str(ad.get('description') or '')
+  for name in sorted(set(names),key=len,reverse=True):
+   pattern=r'(?i)(?:arbetsort|placering|arbetsplats|stationeringsort)\s*[:\-]?\s*'+re.escape(name)+r'(?!\w)'
+   if re.search(pattern,description):return name.title()
   return ''
  def workplace_distance_state(ad):
   place=named_workplace(ad)
@@ -909,7 +913,7 @@ def _jobs_impl():
   if coords:
    km=dist(CITIES[city][0],CITIES[city][1],coords[0],coords[1])
    return ('outside' if radius and km>radius else 'inside'),place
-  far=('skellefteå','karlskrona','umeå','luleå','piteå','sundsvall','östersund','gävle','uppsala','stockholm','västerås','örebro','linköping','norrköping','jönköping','kalmar','växjö','kristianstad','malmö','lund','trelleborg','ystad')
+  far=('borgholm','skellefteå','karlskrona','umeå','luleå','piteå','sundsvall','östersund','gävle','uppsala','stockholm','västerås','örebro','linköping','norrköping','jönköping','kalmar','växjö','kristianstad','malmö','lund','trelleborg','ystad')
   if any(re.search(r'(?i)(?<!\w)'+re.escape(name)+r'(?!\w)',place) for name in far):
    return 'outside',place
   return 'unrecognized',place
