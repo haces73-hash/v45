@@ -907,7 +907,9 @@ def _jobs_impl():
    diagnostics['missing_license']+=1
    return
   if region_name:_add_region_candidate(ad,found,region_name,full_cv=full_cv,diagnostics=diagnostics)
-  else:_add_candidate(ad,found,city,radius,full_cv=full_cv,diagnostics=diagnostics)
+  else:
+   if radius:collect_unknown(ad)
+   _add_candidate(ad,found,city,radius,full_cv=full_cv,diagnostics=diagnostics)
  def summary():
   return {'granskade_unika_annonser':len(diagnostics['seen_ids']),
           'uteslutna_per_orsak':{k:len(v) for k,v in diagnostics['rejected'].items()},
