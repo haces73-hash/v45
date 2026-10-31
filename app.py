@@ -903,6 +903,7 @@ def _jobs_impl():
   candidate['review_bucket']='unknown_location'
   candidate['location_note']='Arbetsort ej bekräftad. Avståndet till Halmstad är okänt.'
   unknown_places[_normalize_key(candidate)]=candidate
+  unknown_stats['cv_relevanta']+=1
  def add_parsed(ad,region_name=None):
   if ad is None:
    diagnostics['missing_license']+=1
