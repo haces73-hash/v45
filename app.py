@@ -901,6 +901,10 @@ def _jobs_impl():
   return ''
  def collect_unknown(ad):
   if not ad or not ad.get('id'):return
+  distant=distant_named_place(ad)
+  if distant:
+   unknown_stats['kand_ort_utanfor_omradet']+=1
+   return
   if ad.get('license_status')=='required':
    unknown_stats['korkortskrav']+=1
    return
