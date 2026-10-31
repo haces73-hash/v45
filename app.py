@@ -170,13 +170,11 @@ def _place_name(value):
  return value.strip().title()
 def _known_place(value):
  name=_place_name(value)
- return name if name.casefold() in MUNICIPALITY_CENTERS else ''
+ return name if _place_coords(name) else ''
 def workplace_from_text(text,metadata_city):
- for match in PLACEMENT.finditer(text or ''):
-  place=match.group(1).splitlines()[0].strip()
-  for key in sorted(MUNICIPALITY_CENTERS,key=len,reverse=True):
-   if re.match(r'(?i)^'+re.escape(key)+r'\b',place):return key.title()
- return _known_place(metadata_city) or _place_name(metadata_city)
+ place=swedish_places.find_labeled_workplace(text)
+ return place.title() if place else (_known_place(metadata_city) or _place_name(metadata_city))
+
 def _coordinates(*sources):
  for source in sources:
   if not isinstance(source,dict):continue
@@ -200,7 +198,7 @@ def _municipality_value(value):
    if result:return result
   return ''
  if isinstance(value,int) and not isinstance(value,bool):value=str(value)
- if isinstance(value,str) and value.strip() in SCB_MUNICIPALITIES:return SCB_MUNICIPALITIES[value.strip()]
+ if isinstance(value,str) and swedish_places.municipality_from_code(value.strip()):return swedish_places.municipality_from_code(value.strip())
  return _known_place(value)
 
 def _workplace_places(entry):
@@ -467,6 +465,7 @@ def _normalize_key(j):
  return ('job',j['title'].strip().casefold(),j['company'].strip().casefold(),j['city'].strip().casefold())
 # Municipality centers for approximate distance only when a listing has no coordinates.
 # A municipality-wide listing is marked approximate, never precise.
+import place_database as swedish_places
 MUNICIPALITY_CENTERS={
  'halmstad':(56.6745,12.8568),'falkenberg':(56.9055,12.4912),
  'varberg':(57.1056,12.2508),'laholm':(56.5121,13.0437),
@@ -481,10 +480,8 @@ MUNICIPALITY_CENTERS={
  'borås':(57.7210,12.9401),'våxtorp':(56.4225,13.1217)
 }
 def _place_coords(name):
- n=(name or '').strip().casefold()
- for key,coords in MUNICIPALITY_CENTERS.items():
-  if n==key or n.startswith(key+' ') or n.endswith(' '+key):return coords
- return None
+ return swedish_places.coordinates(name)
+
 def _location_diagnosis(raw,parsed):
  """Diagnose original source fields without exposing the original address."""
  if not isinstance(raw,dict):return 'Ogiltigt API-objekt'
@@ -891,21 +888,12 @@ def _jobs_impl():
      found.pop(key,None)
     else:found[key]=checked
  def named_workplace(ad):
-  # A generic or missing city must not hide a concrete city in the title.
+  title=swedish_places.find_in_title(ad.get('title'))
+  if title:return title
   city_value=str(ad.get('city') or '').strip()
-  title=str(ad.get('title') or '')
-  far=('borgholm','skellefteå','karlskrona','umeå','luleå','piteå','sundsvall','östersund','gävle','uppsala','stockholm','västerås','örebro','linköping','norrköping','jönköping','kalmar','växjö','kristianstad','malmö','lund','trelleborg','ystad')
-  names=tuple(MUNICIPALITY_CENTERS)+far
-  for name in sorted(set(names),key=len,reverse=True):
-   if re.search(r'(?i)(?<!\w)'+re.escape(name)+r'(?!\w)',title):
-    return name.title()
   if city_value.casefold() not in ('','okänd','okänt','okänd plats','ej angiven','saknas'):
    return city_value
-  description=str(ad.get('description') or '')
-  for name in sorted(set(names),key=len,reverse=True):
-   pattern=r'(?i)(?:arbetsort|placering|arbetsplats|stationeringsort)\s*[:\-]?\s*'+re.escape(name)+r'(?!\w)'
-   if re.search(pattern,description):return name.title()
-  return ''
+  return swedish_places.find_labeled_workplace(ad.get('description'))
  def workplace_distance_state(ad):
   place=named_workplace(ad)
   if not place:return 'missing',''
@@ -983,17 +971,14 @@ def _jobs_impl():
           'obs':'Antal avser API-annonser som granskats. En annons kan förekomma i flera sökningar och avslagsorsaker; totalsummor kan därför skilja sig.'}
 
  def outside_radius_safety(ad):
-  # Final check for ALL three groups, including municipality genitives in titles.
   if not radius:return False
-  title=str(ad.get('title') or '').casefold()
-  place=str(ad.get('city') or '').casefold()
-  distant=('borgholm','skellefteå','karlskrona','umeå','luleå','piteå','sundsvall','östersund','gävle','uppsala','stockholm','västerås','örebro','linköping','norrköping','jönköping','kalmar','växjö','kristianstad','malmö','lund','trelleborg','ystad')
-  for name in distant:
-   pattern=r'(?<!\w)'+re.escape(name)+r'(?:s(?=\s+kommun)|(?=\W|$))'
-   if re.search(pattern,title) or re.search(pattern,place):return True
+  place=named_workplace(ad)
+  if not place:return False
   coords=_place_coords(place)
-  if coords and dist(*CITIES[city],*coords)>radius:return True
-  return False
+  if coords:
+   return dist(*CITIES[city],*coords)>radius
+  # Named but unresolved location must not be treated as a confirmed local workplace.
+  return True
  if region!='radius':
   # Run a bounded number of municipality-specific queries concurrently.
   # Region matching is based on the municipality field, not keyword mentions.
