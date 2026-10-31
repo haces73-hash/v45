@@ -1,8 +1,10 @@
-import os,re,math,datetime
+import os,re,math,datetime,threading,time
 from collections import defaultdict
 from flask import Flask, jsonify, request, send_from_directory
 import requests
 app=Flask(__name__,static_folder='static')
+# Prevent concurrent expensive searches from saturating the small Render instance.
+_search_gate=threading.BoundedSemaphore(value=1)
 CITIES={'Halmstad':(56.6745,12.8568),'Falkenberg':(56.9055,12.4912),'Varberg':(57.1056,12.2508),'Göteborg':(57.7089,11.9746),'Helsingborg':(56.0465,12.6945)}
 TERMS=['anläggningsarbetare','markarbetare','byggarbetare','byggmedhjälpare','betongarbetare','snickare','träarbetare','snickeri','träindustri','produktionsmedarbetare','industriarbetare','verkstadsmedarbetare','montör','svetsare','metallarbetare']
 # More entry-level construction titles, including common alternative spellings.
@@ -799,6 +801,14 @@ def _add_region_candidate(ad,found,region,full_cv=False,diagnostics=None):
 def index():return send_from_directory('static','index.html')
 @app.get('/api/jobs')
 def jobs():
+ if not _search_gate.acquire(blocking=False):
+  return jsonify(error='En jobbsökning pågår redan. Försök igen om en stund.',errors=['Sökning pågår']),503
+ try:
+  return _jobs_impl()
+ finally:
+  _search_gate.release()
+
+def _jobs_impl():
  full_cv=request.args.get('profile','priority').lower()=='full'
  only_fulltime=request.args.get('fulltime','1')!='0'
  region=request.args.get('region','radius').lower()
@@ -843,7 +853,7 @@ def jobs():
             if key in found and found[key].get('verification_status')=='unverified']
   eligible.sort(key=lambda item:(item[1]['priority'],-item[1]['match_score'],
     item[1]['km'] if item[1]['km'] is not None else 9999,str(item[1]['id'])))
-  for key,ad,raw in eligible:
+  for key,ad,raw in eligible[:12]:
    area=ad.get('cv_match_area','Övriga')
    before=len(diagnostics['source_id_attempted'])
    done=diagnostics['source_id_completed']
@@ -904,7 +914,7 @@ def jobs():
    response.raise_for_status()
    return response.json().get('hits',[])
   with ThreadPoolExecutor(max_workers=8) as pool:
-   futures=[pool.submit(search_local,(term,town)) for town in towns for term in query_terms]
+   futures=[pool.submit(search_local,(term,town)) for town in towns[:6] for term in query_terms[:16]]
    for future in as_completed(futures):
     try:
      ads=future.result()
@@ -989,7 +999,9 @@ def documents(kind, format):
  return send_from_directory(app.static_folder,name,mimetype=mime,as_attachment=download,download_name=name,conditional=False)
 
 @app.get('/health')
-def health():return jsonify(status='ok')
+def health():
+ # Liveness must never contact external job APIs or wait for the search lock.
+ return jsonify(status='ok')
 if __name__=='__main__':app.run(host='0.0.0.0',port=int(os.getenv('PORT','5000')))
 
 @app.after_request
