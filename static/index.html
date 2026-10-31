@@ -224,7 +224,7 @@ function declineUnknown(i){
 function declineReview(i){
  const used=new Set(history.map(h=>String(h.id)));
  const featured=new Set(jobs.map(j=>String(j.id)));
- const items=reviewCandidates.filter(j=>!featured.has(String(j.id))&&!used.has(String(j.id))&&!isDeclinedToday(j)).slice(0,12);
+ const items=reviewCandidates.filter(j=>!featured.has(String(j.id))&&!used.has(String(j.id))&&!isDeclinedToday(j)&&j.license_status!=='required'&&($('fulltime').value!=='1'||j.employment_extent!=='part_time')).slice(0,5);
  const j=items[i];if(j)declineJob(j);
  selectBestFive();
 }
