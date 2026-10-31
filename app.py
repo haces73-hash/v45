@@ -900,7 +900,9 @@ def _jobs_impl():
   if ad.get('lat') is not None and ad.get('lon') is not None:return
   if _place_coords(ad.get('city')):return
   unknown_stats['plats_ej_bekraftad']+=1
-  if any((option.get('lat') is not None and option.get('lon') is not None) or _place_coords(option.get('city')) for option in (ad.get('location_options') or [])):return
+  if any((option.get('lat') is not None and option.get('lon') is not None) or _place_coords(option.get('city')) for option in (ad.get('location_options') or [])):
+   unknown_stats['annan_kand_plats']+=1
+   return
   candidate=dict(ad)
   if not score_job(candidate,full_cv=full_cv):
    unknown_stats['ej_cv_match']+=1
