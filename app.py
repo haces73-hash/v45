@@ -84,7 +84,8 @@ def _license_decision(ad,title,text):
  """Keep the decision trace without storing actual qualification values."""
  structured,path=_structured_license_evidence(ad)
  if structured=='required':return ('required','Obligatoriskt körkort enligt strukturerade krav','strukturerat obligatoriskt',path)
- if structured=='not_required':return ('not_required','Inget obligatoriskt körkort enligt annonsdata','strukturerat ej krav',path)
+ # Explicit mandatory text must also be checked when structured metadata says not required.
+ if structured=='not_required' and not re.search(r'(?i)(?:körkort|driving licen[cs]e).{0,55}(?:krävs|är ett krav|obligatoriskt|måste ha)|(?:krävs|krav på|måste ha|obligatoriskt).{0,55}(?:b[- ]?körkort|driving licen[cs]e)',str(text or '')):return ('not_required','Inget obligatoriskt körkort enligt annonsdata','strukturerat ej krav',path)
  extras=[]
  for key in ('requirements','qualifications','must_have','nice_to_have','license','driving_license'):
   value=ad.get(key)
@@ -709,13 +710,13 @@ def _attach_requirement_checks(items):
  return items
 
 def _classify_listing(j):
- # Never claim that a missing full ad is a confirmed suitable job.
- # Explicit absence of a mandatory licence in structured data + substantial
- # job text allows provisional qualification, still requires user review.
+ """Separate verified candidates from ads requiring manual checks."""
  if not j:return None
- if j.get('verification_status')=='unverified':return 'needs_review'
- if j.get('license_status') in ('not_mentioned','unclear','conflict'):return 'needs_review'
  if j.get('license_status')=='required':return 'rejected'
+ if j.get('verification_status')=='unverified':return 'needs_review'
+ if j.get('license_status') in ('not_mentioned','unclear','conflict','optional','forklift'):return 'needs_review'
+ if j.get('verification_status')=='review':return 'needs_review'
+ if j.get('employment_extent')=='unknown':return 'needs_review'
  return 'qualified'
 
 def _add_candidate(ad,found,city,radius,full_cv=False,diagnostics=None):
