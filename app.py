@@ -531,7 +531,7 @@ def _enrich_jobsearch_location(raw,parsed,diagnostics):
  if not any(w in title for w in ('bygg','anlägg','markarb','betong','snick','träarb','grovarb','rivning','vägarb','lärling','hjälparb')):return parsed
  ident=str(raw.get('id') or '')
  if not re.fullmatch(r'[A-Za-z0-9_-]{1,90}',ident):return parsed
- if ident in diagnostics['detail_attempt_ids'] or len(diagnostics['detail_attempt_ids'])>=30:return parsed
+ if ident in diagnostics['detail_attempt_ids'] or len(diagnostics['detail_attempt_ids'])>=6:return parsed
  diagnostics['detail_attempt_ids'].add(ident)
  try:
   r=requests.get('https://jobsearch.api.jobtechdev.se/ad/'+ident,timeout=5,headers={'Accept':'application/json','User-Agent':'Jobb4kevin/31'})
@@ -827,6 +827,8 @@ def jobs():
   _search_gate.release()
 
 def _jobs_impl():
+ import time
+ started_at=time.monotonic()
  full_cv=request.args.get('profile','priority').lower()=='full'
  only_fulltime=request.args.get('fulltime','1')!='0'
  region=request.args.get('region','radius').lower()
@@ -871,7 +873,7 @@ def _jobs_impl():
             if key in found and found[key].get('verification_status')=='unverified']
   eligible.sort(key=lambda item:(item[1]['priority'],-item[1]['match_score'],
     item[1]['km'] if item[1]['km'] is not None else 9999,str(item[1]['id'])))
-  for key,ad,raw in eligible[:12]:
+  for key,ad,raw in eligible[:6]:
    area=ad.get('cv_match_area','Övriga')
    before=len(diagnostics['source_id_attempted'])
    done=diagnostics['source_id_completed']
@@ -953,39 +955,49 @@ def _jobs_impl():
   qualified=[j for j in ranked if j['review_bucket']=='qualified']
   needs_review=[j for j in ranked if j['review_bucket']=='needs_review']
   result=qualified[:80]
-  return jsonify({'jobs':_attach_requirement_checks(result),'needs_review':_attach_requirement_checks(needs_review[:80]),'fulltime_only':only_fulltime,'match_counts':match_counts(found),'diagnostics':summary(),'region':region,'source':', '.join(sorted(sources_ok)) or 'Inga källor nåddes','sources':sorted(sources_ok),'errors':errors,'note':'Körkorts- och seniorfilter: obligatoriska körkort och tydliga seniorroller utesluts. Halland omfattar sex kommuner. Södra Sverige omfattar här Halland, Skåne, Blekinge, Kronoberg, Kalmar, Jönköping och Västra Götaland. Jobbsökningarna görs via representativa orter; alla kommuner söks inte individuellt. Högst fem visas i appen.'})
- for term in search_terms(full_cv):
-  try:
-   r=requests.get('https://jobsearch.api.jobtechdev.se/search',params={'q':term,'limit':100, **({'position':f"{CITIES[city][0]},{CITIES[city][1]}",'position.radius':radius} if radius else {})},timeout=8,headers={'Accept':'application/json','User-Agent':'NoMoreClown/1.0'})
-   r.raise_for_status()
-   sources_ok.add('Platsbanken / JobSearch')
-   for ad in r.json().get('hits',[]):
-    add_jobsearch(ad)
-   if term in BUILD_TERMS and radius:
-    r2=requests.get('https://jobsearch.api.jobtechdev.se/search',params={'q':term+' '+city,'limit':100},timeout=8,headers={'Accept':'application/json'})
-    r2.raise_for_status()
-    for ad in r2.json().get('hits',[]):add_jobsearch(ad)
-  except (requests.RequestException,ValueError,KeyError,TypeError) as e:
-   errors.append('JobSearch: '+str(e)[:110])
+  search_seconds=round(time.monotonic()-started_at,1)
+  return jsonify({'jobs':_attach_requirement_checks(result),'needs_review':_attach_requirement_checks(needs_review[:80]),'search_seconds':search_seconds,'fulltime_only':only_fulltime,'match_counts':match_counts(found),'diagnostics':summary(),'region':region,'source':', '.join(sorted(sources_ok)) or 'Inga källor nåddes','sources':sorted(sources_ok),'errors':errors,'note':'Körkorts- och seniorfilter: obligatoriska körkort och tydliga seniorroller utesluts. Halland omfattar sex kommuner. Södra Sverige omfattar här Halland, Skåne, Blekinge, Kronoberg, Kalmar, Jönköping och Västra Götaland. Jobbsökningarna görs via representativa orter; alla kommuner söks inte individuellt. Högst fem visas i appen.'})
+ from concurrent.futures import ThreadPoolExecutor,as_completed
+ terms=search_terms(full_cv)
+ def fetch_query(task):
+  kind,term,variant=task
+  if kind=='jobsearch':
+   params={'q':term+((' '+city) if variant=='city' else ''),'limit':100}
+   if variant=='radius' and radius:
+    params.update({'position':f"{CITIES[city][0]},{CITIES[city][1]}",'position.radius':radius})
+   url='https://jobsearch.api.jobtechdev.se/search'
+   timeout=6
+  else:
+   params={'q':term,'limit':40,'sort':'relevance'}
+   url='https://links.api.jobtechdev.se/joblinks'
+   timeout=4
+  response=requests.get(url,params=params,timeout=timeout,headers={'Accept':'application/json','User-Agent':'Jobb4kevin/81'})
+  response.raise_for_status()
+  payload=response.json()
+  if kind=='jobsearch':hits=payload.get('hits',[])
+  else:hits=payload.get('hits',payload.get('joblinks',payload.get('results',[]))) if isinstance(payload,dict) else payload
+  if not isinstance(hits,list):raise ValueError('Oväntat svarformat')
+  return kind,hits
+ tasks=[]
+ for term in terms:
+  tasks.append(('jobsearch',term,'radius' if radius else 'city'))
+  if term in BUILD_TERMS and radius:tasks.append(('jobsearch',term,'city'))
+  tasks.append(('links',term,''))
+ with ThreadPoolExecutor(max_workers=6) as pool:
+  futures=[pool.submit(fetch_query,task) for task in tasks]
+  for future in as_completed(futures):
    try:
-    r=requests.get('https://jobsearch.api.jobtechdev.se/search',params={'q':term+' '+city,'limit':100},timeout=8,headers={'Accept':'application/json'})
-    r.raise_for_status()
-    for ad in r.json().get('hits',[]):add_jobsearch(ad)
-    sources_ok.add('Platsbanken / JobSearch')
-   except (requests.RequestException,ValueError,TypeError):pass
-  try:
-   # JobAd Links indexes external job boards and links back to their original ads.
-   # No scraping or API key needed.
-   r=requests.get('https://links.api.jobtechdev.se/joblinks',params={'q':term,'limit':40,'sort':'relevance'},timeout=4,headers={'Accept':'application/json','User-Agent':'NoMoreClown/1.0'})
-   r.raise_for_status()
-   payload=r.json()
-   hits=payload.get('hits',payload.get('joblinks',payload.get('results',[]))) if isinstance(payload,dict) else payload
-   if not isinstance(hits,list):raise ValueError('Oväntat svarformat från JobAd Links')
-   sources_ok.add('JobAd Links / externa jobbsajter')
-   for ad in hits:
-    if isinstance(ad,dict):add_external(ad)
-  except (requests.RequestException,ValueError,KeyError,TypeError) as e:
-   errors.append('JobAd Links: '+str(e)[:110])
+    kind,hits=future.result()
+    if kind=='jobsearch':
+     sources_ok.add('Platsbanken / JobSearch')
+     for ad in hits:add_jobsearch(ad)
+    else:
+     sources_ok.add('JobAd Links / externa jobbsajter')
+     for ad in hits:
+      if isinstance(ad,dict):add_external(ad)
+   except (requests.RequestException,ValueError,KeyError,TypeError) as e:
+    if len(errors)<8:errors.append('Sökkälla: '+str(e)[:110])
+
  enrich_globally()
  ranked=sorted(found.values(),key=lambda j:(j['priority'],-j['match_score'],j['km'] if j['km'] is not None else 9999,j['id']))
  for item in ranked:
@@ -1000,7 +1012,8 @@ def _jobs_impl():
  qualified=[j for j in ranked if j['review_bucket']=='qualified']
  needs_review=[j for j in ranked if j['review_bucket']=='needs_review']
  result=qualified[:80]
- return jsonify({'jobs':_attach_requirement_checks(result),'needs_review':_attach_requirement_checks(needs_review[:80]),'fulltime_only':only_fulltime,'match_counts':match_counts(found),'diagnostics':summary(),'source':', '.join(sorted(sources_ok)) or 'Inga källor nåddes','sources':sorted(sources_ok),'city':city,'radius':radius,'errors':errors[:8], 'note':'Körkortsfilter: obligatoriskt bilkörkort utesluts; meriterande truckkort kan tillåtas. Externa annonser kan ha förkortad text och måste dubbelkollas. JobSearch och JobAd Links används. Annonser utan GPS kan tas med när kommunen är känd; avståndet är då ungefärligt. Externa annonser kan ha förkortade beskrivningar. Kontrollera körkort och andra krav i originalannonsen.'})
+ search_seconds=round(time.monotonic()-started_at,1)
+ return jsonify({'jobs':_attach_requirement_checks(result),'needs_review':_attach_requirement_checks(needs_review[:80]),'search_seconds':search_seconds,'fulltime_only':only_fulltime,'match_counts':match_counts(found),'diagnostics':summary(),'source':', '.join(sorted(sources_ok)) or 'Inga källor nåddes','sources':sorted(sources_ok),'city':city,'radius':radius,'errors':errors[:8], 'note':'Körkortsfilter: obligatoriskt bilkörkort utesluts; meriterande truckkort kan tillåtas. Externa annonser kan ha förkortad text och måste dubbelkollas. JobSearch och JobAd Links används. Annonser utan GPS kan tas med när kommunen är känd; avståndet är då ungefärligt. Externa annonser kan ha förkortade beskrivningar. Kontrollera körkort och andra krav i originalannonsen.'})
 
 # Explicit document endpoints: PDFs preview in the browser; DOCX downloads as real files.
 @app.get('/documents/<kind>/<format>')
