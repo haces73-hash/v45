@@ -915,9 +915,13 @@ def _jobs_impl():
   return 'unrecognized',place
  def collect_unknown(ad):
   if not ad or not ad.get('id'):return
-  distant=distant_named_place(ad)
-  if distant:
+  place_state,place_name=workplace_distance_state(ad)
+  if place_state=='outside':
    unknown_stats['kand_ort_utanfor_omradet']+=1
+   return
+  if place_state=='inside':return
+  if place_state=='unrecognized':
+   unknown_stats['ortnamn_ej_igenkant']+=1
    return
   if ad.get('license_status')=='required':
    unknown_stats['korkortskrav']+=1
