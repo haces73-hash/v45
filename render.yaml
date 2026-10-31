@@ -4,7 +4,7 @@ services:
     runtime: python
     plan: free
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn -w 2 -b 0.0.0.0:$PORT app:app --timeout 120
+    startCommand: gunicorn --bind 0.0.0.0:$PORT --workers 1 --worker-class gthread --threads 8 --timeout 120 --graceful-timeout 30 app:app
     healthCheckPath: /health
     envVars:
       - key: PYTHON_VERSION
