@@ -971,17 +971,14 @@ def _jobs_impl():
           'obs':'Antal avser API-annonser som granskats. En annons kan förekomma i flera sökningar och avslagsorsaker; totalsummor kan därför skilja sig.'}
 
  def outside_radius_safety(ad):
-  # Final check for ALL three groups, including municipality genitives in titles.
   if not radius:return False
-  title=str(ad.get('title') or '').casefold()
-  place=str(ad.get('city') or '').casefold()
-  distant=('borgholm','skellefteå','karlskrona','umeå','luleå','piteå','sundsvall','östersund','gävle','uppsala','stockholm','västerås','örebro','linköping','norrköping','jönköping','kalmar','växjö','kristianstad','malmö','lund','trelleborg','ystad')
-  for name in distant:
-   pattern=r'(?<!\w)'+re.escape(name)+r'(?:s(?=\s+kommun)|(?=\W|$))'
-   if re.search(pattern,title) or re.search(pattern,place):return True
+  place=named_workplace(ad)
+  if not place:return False
   coords=_place_coords(place)
-  if coords and dist(*CITIES[city],*coords)>radius:return True
-  return False
+  if coords:
+   return dist(*CITIES[city],*coords)>radius
+  # Named but unresolved location must not be treated as a confirmed local workplace.
+  return True
  if region!='radius':
   # Run a bounded number of municipality-specific queries concurrently.
   # Region matching is based on the municipality field, not keyword mentions.
