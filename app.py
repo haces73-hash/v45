@@ -898,7 +898,9 @@ def _jobs_impl():
   if _place_coords(ad.get('city')):return
   if any((option.get('lat') is not None and option.get('lon') is not None) or _place_coords(option.get('city')) for option in (ad.get('location_options') or [])):return
   candidate=dict(ad)
-  if not score_job(candidate,full_cv=full_cv):return
+  if not score_job(candidate,full_cv=full_cv):
+   unknown_stats['ej_cv_match']+=1
+   return
   candidate['km']=None
   candidate['review_bucket']='unknown_location'
   candidate['location_reason']=ad.get('_location_diagnosis') or 'Platsuppgift saknas'
