@@ -170,13 +170,11 @@ def _place_name(value):
  return value.strip().title()
 def _known_place(value):
  name=_place_name(value)
- return name if name.casefold() in MUNICIPALITY_CENTERS else ''
+ return name if _place_coords(name) else ''
 def workplace_from_text(text,metadata_city):
- for match in PLACEMENT.finditer(text or ''):
-  place=match.group(1).splitlines()[0].strip()
-  for key in sorted(MUNICIPALITY_CENTERS,key=len,reverse=True):
-   if re.match(r'(?i)^'+re.escape(key)+r'\b',place):return key.title()
- return _known_place(metadata_city) or _place_name(metadata_city)
+ place=swedish_places.find_labeled_workplace(text)
+ return place.title() if place else (_known_place(metadata_city) or _place_name(metadata_city))
+
 def _coordinates(*sources):
  for source in sources:
   if not isinstance(source,dict):continue
@@ -890,21 +888,12 @@ def _jobs_impl():
      found.pop(key,None)
     else:found[key]=checked
  def named_workplace(ad):
-  # A generic or missing city must not hide a concrete city in the title.
+  title=swedish_places.find_in_title(ad.get('title'))
+  if title:return title
   city_value=str(ad.get('city') or '').strip()
-  title=str(ad.get('title') or '')
-  far=('borgholm','skellefteå','karlskrona','umeå','luleå','piteå','sundsvall','östersund','gävle','uppsala','stockholm','västerås','örebro','linköping','norrköping','jönköping','kalmar','växjö','kristianstad','malmö','lund','trelleborg','ystad')
-  names=tuple(MUNICIPALITY_CENTERS)+far
-  for name in sorted(set(names),key=len,reverse=True):
-   if re.search(r'(?i)(?<!\w)'+re.escape(name)+r'(?!\w)',title):
-    return name.title()
   if city_value.casefold() not in ('','okänd','okänt','okänd plats','ej angiven','saknas'):
    return city_value
-  description=str(ad.get('description') or '')
-  for name in sorted(set(names),key=len,reverse=True):
-   pattern=r'(?i)(?:arbetsort|placering|arbetsplats|stationeringsort)\s*[:\-]?\s*'+re.escape(name)+r'(?!\w)'
-   if re.search(pattern,description):return name.title()
-  return ''
+  return swedish_places.find_labeled_workplace(ad.get('description'))
  def workplace_distance_state(ad):
   place=named_workplace(ad)
   if not place:return 'missing',''
