@@ -994,7 +994,7 @@ if __name__=='__main__':app.run(host='0.0.0.0',port=int(os.getenv('PORT','5000')
 
 @app.after_request
 def _v50_no_cache(response):
- if response.mimetype in ('text/html','application/json') or response.path.startswith('/static/') or response.path.startswith('/documents/'):
+ if response.mimetype in ('text/html','application/json') or request.path.startswith('/static/') or request.path.startswith('/documents/'):
   response.headers['Cache-Control']='no-store, no-cache, must-revalidate, max-age=0'
   response.headers['Pragma']='no-cache'
   response.headers['Expires']='0'
