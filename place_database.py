@@ -14,12 +14,12 @@ for name, municipality, lat, lon in _DATA["localities"]:
     LOCALITIES.setdefault(name.casefold(), []).append((municipality.casefold(), (lat, lon)))
 NAMES = set(MUNICIPALITIES) | set(LOCALITIES)
 MAX_WORDS = max(len(name.split()) for name in NAMES)
-_WORD = re.compile(r"[^\\W_]+(?:[-'][^\\W_]+)*", re.UNICODE)
-_LABEL = re.compile(r"\\b(?:arbetsort|stationeringsort|placering|arbetsplats)\\s*[:\\-]?\\s*", re.I)
+_WORD = re.compile(r"[^\W_]+(?:[-'][^\W_]+)*", re.UNICODE)
+_LABEL = re.compile(r"\b(?:arbetsort|stationeringsort|placering|arbetsplats)\s*[:\-]?\s*", re.I)
 
 def normalize(value):
-    value = re.sub(r"\\s+", " ", str(value or "").strip()).casefold()
-    value = re.sub(r"\\s+kommun$", "", value)
+    value = re.sub(r"\s+", " ", str(value or "").strip()).casefold()
+    value = re.sub(r"\s+kommun$", "", value)
     if value.endswith("s") and value[:-1] in MUNICIPALITIES:
         value = value[:-1]
     return value
