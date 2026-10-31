@@ -114,7 +114,7 @@ function selectBestFive(){
  jobs=ids.map(id=>byId.get(String(id))).filter(Boolean);
  const provisionalCount=0;
  $('status').textContent='Dagens fasta jobblista: '+jobs.length+' av '+ids.length+' ursprungliga jobb kvar ('+todaySE()+'). Inga nya jobb fylls på efter NEJ TACK eller ansökan. Nästa dags sökning kan ge upp till fem jobb igen. Osäkra annonser visas separat under Behöver kontrolleras.';
- renderJobs();renderReviewJobs();
+ renderJobs();renderReviewJobs();renderUnknownJobs();
 }
 async function loadJobs(force=false){
  if(documentPreviewActive){return;}
@@ -208,6 +208,18 @@ function renderReviewJobs(){
  ${j.url?`<a target="_blank" rel="noopener noreferrer" href="${esc(j.url)}">KONTROLLERA ORIGINALANNONS ↗</a>`:'Ingen originalannonslänk finns.'}
  <button class="btn ghost" onclick="declineReview(${i})">NEJ TACK</button>
  </article>`).join(''):'<p class="small">Inga ytterligare annonser behöver kontrolleras just nu.</p>';
+}
+function renderUnknownJobs(){
+ const used=new Set(history.map(h=>String(h.id)));
+ const items=unknownCandidates.filter(j=>!used.has(String(j.id))&&!isDeclinedToday(j)&&j.license_status!=='required').slice(0,5);
+ $('unknownCount').textContent=items.length+' annonser ▾';
+ $('unknownJobs').innerHTML=items.length?items.map((j,i)=>`<article class="job"><span class="tag">⚠️ ARBETSORT EJ BEKRÄFTAD</span><h3>${esc(j.title)}</h3><p class="muted">${esc(j.match_reason||'Möjlig CV-match')}</p><b>${esc(j.company)}</b><p class="muted">📍 Arbetsort och avstånd till Halmstad är okända. Inte verifierad inom sökområdet.</p><p class="muted">Körkort: ${esc(j.license||'Kontrollera i originalannonsen')}</p>${requirementChecks(j)}${j.url?`<a target="_blank" rel="noopener noreferrer" href="${esc(j.url)}">GRANSKA ORIGINALANNONS ↗</a>`:'Originalannonslänk saknas.'}<button class="btn ghost" onclick="declineUnknown(${i})">NEJ TACK</button></article>`).join(''):'<p class="small">Inga annonser med obekräftad arbetsort att granska.</p>';
+}
+function declineUnknown(i){
+ const used=new Set(history.map(h=>String(h.id)));
+ const items=unknownCandidates.filter(j=>!used.has(String(j.id))&&!isDeclinedToday(j)&&j.license_status!=='required').slice(0,5);
+ if(items[i])declineJob(items[i]);
+ selectBestFive();
 }
 function declineReview(i){
  const used=new Set(history.map(h=>String(h.id)));
