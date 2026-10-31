@@ -22,3 +22,5 @@ Version 61: Förtydligad Word-knapp för originalets personliga brev. Render-sta
 
 
 Version 62: Mobil PDF-granskning med synlig Tillbaka-knapp, Skriv ut PDF, Dela/Spara PDF och Öppna externt. iPhone-utskrift kan kräva Safari/Braves delningsmeny; utskrift från inbäddad PDF beror på webbläsaren. Render-stabilisering från v60/v61 oförändrad.
+
+Version 63: PDF-visaren har endast två knappar: TILLBAKA TILL APPEN och DELA / SPARA PDF. Separata knappar för utskrift och extern öppning borttagna.
