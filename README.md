@@ -34,3 +34,6 @@ PDF.js har nu tidsgränser och en automatisk reservvisning om CDN, worker eller 
 
 ## v66 – PDF prioriteras
 När en dokumentförhandsgranskning öppnas pausas nya jobbsökningar i webbläsaren och eventuell pågående jobbförfrågan avbryts på klientsidan. När dokumentet stängs återupptas ingen automatisk sökning; användaren kan söka manuellt. Redan startat serverarbete kan fortsätta tills det avslutas, eftersom avbruten HTTP-begäran inte garanterar att Python-arbetet stoppas. PDF.js och reservvisning från v65 behålls.
+
+## v67 – stabil PDF-förhandsgranskning
+PDF-sidorna levereras som lokala PNG-förhandsvisningar i full mobilbredd. Ingen PDF.js/CDN eller iframe krävs för granskning. DELA / SPARA PDF länkar fortfarande till original-PDF. De två knapparna ligger bredvid varandra.
