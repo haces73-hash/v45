@@ -1009,7 +1009,7 @@ def _jobs_impl():
   place=str(ad.get('city') or '').casefold()
   distant=('borgholm','skellefteå','karlskrona','umeå','luleå','piteå','sundsvall','östersund','gävle','uppsala','stockholm','västerås','örebro','linköping','norrköping','jönköping','kalmar','växjö','kristianstad','malmö','lund','trelleborg','ystad')
   for name in distant:
-   pattern=r'(?<!\\w)'+re.escape(name)+r'(?:s(?=\\s+kommun)|(?=\\W|$))'
+   pattern=r'(?<!\w)'+re.escape(name)+r'(?:s(?=\s+kommun)|(?=\W|$))'
    if re.search(pattern,title) or re.search(pattern,place):return True
   coords=_place_coords(place)
   if coords and dist(*CITIES[city],*coords)>radius:return True
