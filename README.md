@@ -26,5 +26,8 @@ Version 62: Mobil PDF-granskning med synlig Tillbaka-knapp, Skriv ut PDF, Dela/S
 Version 63: PDF-visaren har endast två knappar: TILLBAKA TILL APPEN och DELA / SPARA PDF. Separata knappar för utskrift och extern öppning borttagna.
 
 
-## v64
+## v65
 PDF-granskning: de två knapparna visas bredvid varandra. PDF-sidor renderas i en responsiv, vertikalt rullbar vy anpassad till mobilens bredd med PDF.js; reservvisning används om biblioteket inte kan laddas. Dela/spara använder fortsatt original-PDF. Kräver internetåtkomst till cdnjs.cloudflare.com för bästa PDF-visning.
+
+## v65 – PDF-visning
+PDF.js har nu tidsgränser och en automatisk reservvisning om CDN, worker eller rendering hänger. De två dokumentknapparna ligger kvar sida vid sida. Reservvisningen använder webbläsarens inbyggda PDF-visare och kan bete sig olika på olika telefoner.
