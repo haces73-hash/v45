@@ -838,7 +838,7 @@ def _jobs_impl():
  except ValueError:radius=30
  radius=radius if radius in (0,10,30,50,100) else 30
  from collections import defaultdict
- found={};errors=[];sources_ok=set();external_candidates={}
+ found={};unknown_places={};errors=[];sources_ok=set();external_candidates={}
  diagnostics={'license_conflicts':0,'license_block_rows':[],'license_evidence':defaultdict(int),'enrichment_by_category':defaultdict(lambda:{'attempted':0,'completed':0,'license_rejected':0}),'fulltime_excluded':set(),'fulltime_unknown':set(),'source_id_attempted':set(),'source_id_missing':0,'source_id_completed':0,'source_id_failed':0,'source_id_mismatch':0,'source_id_license_rejected':0,'location_samples':defaultdict(dict),'seen_ids':set(),'rejected':defaultdict(set),'missing_license':0,'source_seen':defaultdict(set),'unknown_by_source':defaultdict(set),'detail_attempt_ids':set(),'detail_resolved_ids':set(),'detail_failed_ids':set(),'unknown_reasons':defaultdict(set)}
  def record_sample(raw,parsed,source):
   if parsed and (parsed.get('lat') is not None or _place_coords(parsed.get('city'))):return
@@ -890,12 +890,27 @@ def _jobs_impl():
     if not score_job(checked,full_cv=full_cv):
      found.pop(key,None)
     else:found[key]=checked
+ def collect_unknown(ad):
+  if not ad or not ad.get('id') or ad.get('license_status')=='required':return
+  if is_blocked_employer(ad):return
+  if only_fulltime and ad.get('employment_extent')=='part_time':return
+  if ad.get('lat') is not None and ad.get('lon') is not None:return
+  if _place_coords(ad.get('city')):return
+  if any((option.get('lat') is not None and option.get('lon') is not None) or _place_coords(option.get('city')) for option in (ad.get('location_options') or [])):return
+  candidate=dict(ad)
+  if not score_job(candidate,full_cv=full_cv):return
+  candidate['km']=None
+  candidate['review_bucket']='unknown_location'
+  candidate['location_note']='Arbetsort ej bekräftad. Avståndet till Halmstad är okänt.'
+  unknown_places[_normalize_key(candidate)]=candidate
  def add_parsed(ad,region_name=None):
   if ad is None:
    diagnostics['missing_license']+=1
    return
   if region_name:_add_region_candidate(ad,found,region_name,full_cv=full_cv,diagnostics=diagnostics)
-  else:_add_candidate(ad,found,city,radius,full_cv=full_cv,diagnostics=diagnostics)
+  else:
+   if radius:collect_unknown(ad)
+   _add_candidate(ad,found,city,radius,full_cv=full_cv,diagnostics=diagnostics)
  def summary():
   return {'granskade_unika_annonser':len(diagnostics['seen_ids']),
           'uteslutna_per_orsak':{k:len(v) for k,v in diagnostics['rejected'].items()},
@@ -956,7 +971,7 @@ def _jobs_impl():
   needs_review=[j for j in ranked if j['review_bucket']=='needs_review']
   result=qualified[:80]
   search_seconds=round(time.monotonic()-started_at,1)
-  return jsonify({'jobs':_attach_requirement_checks(result),'needs_review':_attach_requirement_checks(needs_review[:80]),'search_seconds':search_seconds,'fulltime_only':only_fulltime,'match_counts':match_counts(found),'diagnostics':summary(),'region':region,'source':', '.join(sorted(sources_ok)) or 'Inga källor nåddes','sources':sorted(sources_ok),'errors':errors,'note':'Körkorts- och seniorfilter: obligatoriska körkort och tydliga seniorroller utesluts. Halland omfattar sex kommuner. Södra Sverige omfattar här Halland, Skåne, Blekinge, Kronoberg, Kalmar, Jönköping och Västra Götaland. Jobbsökningarna görs via representativa orter; alla kommuner söks inte individuellt. Högst fem visas i appen.'})
+  return jsonify({'jobs':_attach_requirement_checks(result),'needs_review':_attach_requirement_checks(needs_review[:80]),'unknown_location':_attach_requirement_checks(unknown_ranked),'search_seconds':search_seconds,'fulltime_only':only_fulltime,'match_counts':match_counts(found),'diagnostics':summary(),'region':region,'source':', '.join(sorted(sources_ok)) or 'Inga källor nåddes','sources':sorted(sources_ok),'errors':errors,'note':'Körkorts- och seniorfilter: obligatoriska körkort och tydliga seniorroller utesluts. Halland omfattar sex kommuner. Södra Sverige omfattar här Halland, Skåne, Blekinge, Kronoberg, Kalmar, Jönköping och Västra Götaland. Jobbsökningarna görs via representativa orter; alla kommuner söks inte individuellt. Högst fem visas i appen.'})
  from concurrent.futures import ThreadPoolExecutor,as_completed
  terms=search_terms(full_cv)
  def fetch_query(task):
@@ -1012,6 +1027,7 @@ def _jobs_impl():
  qualified=[j for j in ranked if j['review_bucket']=='qualified']
  needs_review=[j for j in ranked if j['review_bucket']=='needs_review']
  result=qualified[:80]
+ unknown_ranked=sorted((v for k,v in unknown_places.items() if k not in found),key=lambda j:(j['priority'],-j['match_score'],str(j['id'])))[:5]
  search_seconds=round(time.monotonic()-started_at,1)
  return jsonify({'jobs':_attach_requirement_checks(result),'needs_review':_attach_requirement_checks(needs_review[:80]),'search_seconds':search_seconds,'fulltime_only':only_fulltime,'match_counts':match_counts(found),'diagnostics':summary(),'source':', '.join(sorted(sources_ok)) or 'Inga källor nåddes','sources':sorted(sources_ok),'city':city,'radius':radius,'errors':errors[:8], 'note':'Körkortsfilter: obligatoriskt bilkörkort utesluts; meriterande truckkort kan tillåtas. Externa annonser kan ha förkortad text och måste dubbelkollas. JobSearch och JobAd Links används. Annonser utan GPS kan tas med när kommunen är känd; avståndet är då ungefärligt. Externa annonser kan ha förkortade beskrivningar. Kontrollera körkort och andra krav i originalannonsen.'})
 
