@@ -890,6 +890,15 @@ def _jobs_impl():
     if not score_job(checked,full_cv=full_cv):
      found.pop(key,None)
     else:found[key]=checked
+ def distant_named_place(ad):
+  # Only use explicit, unambiguous city names from title or workplace metadata.
+  distant=('skellefteå','karlskrona','umeå','luleå','piteå','sundsvall','östersund','gävle','uppsala','stockholm','västerås','örebro','linköping','norrköping','jönköping','kalmar','växjö','kristianstad','malmö','lund','trelleborg','ystad')
+  title=str(ad.get('title') or '').casefold()
+  city=str(ad.get('city') or '').casefold()
+  for place in distant:
+   if re.search(r'(?<!\\w)'+re.escape(place)+r'(?!\\w)',title) or re.search(r'(?<!\\w)'+re.escape(place)+r'(?!\\w)',city):
+    return place.title()
+  return ''
  def collect_unknown(ad):
   if not ad or not ad.get('id'):return
   if ad.get('license_status')=='required':
