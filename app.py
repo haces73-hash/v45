@@ -982,6 +982,18 @@ def _jobs_impl():
           'platsfalt_exempel_per_kalla':{k:list(v.values()) for k,v in diagnostics['location_samples'].items()},
           'obs':'Antal avser API-annonser som granskats. En annons kan förekomma i flera sökningar och avslagsorsaker; totalsummor kan därför skilja sig.'}
 
+ def outside_radius_safety(ad):
+  # Final check for ALL three groups, including municipality genitives in titles.
+  if not radius:return False
+  title=str(ad.get('title') or '').casefold()
+  place=str(ad.get('city') or '').casefold()
+  distant=('borgholm','skellefteå','karlskrona','umeå','luleå','piteå','sundsvall','östersund','gävle','uppsala','stockholm','västerås','örebro','linköping','norrköping','jönköping','kalmar','växjö','kristianstad','malmö','lund','trelleborg','ystad')
+  for name in distant:
+   pattern=r'(?<!\w)'+re.escape(name)+r'(?:s(?=\s+kommun)|(?=\W|$))'
+   if re.search(pattern,title) or re.search(pattern,place):return True
+  coords=_place_coords(place)
+  if coords and dist(*CITIES[city],*coords)>radius:return True
+  return False
  if region!='radius':
   # Run a bounded number of municipality-specific queries concurrently.
   # Region matching is based on the municipality field, not keyword mentions.
@@ -1002,18 +1014,6 @@ def _jobs_impl():
      for ad in ads:add_jobsearch(ad,region)
     except (requests.RequestException,ValueError,KeyError,TypeError) as e:
      if len(errors)<8:errors.append('JobSearch: '+str(e)[:110])
-  def outside_radius_safety(ad):
-   # Final check for ALL three groups, including municipality genitives in titles.
-   if not radius:return False
-   title=str(ad.get('title') or '').casefold()
-   place=str(ad.get('city') or '').casefold()
-   distant=('borgholm','skellefteå','karlskrona','umeå','luleå','piteå','sundsvall','östersund','gävle','uppsala','stockholm','västerås','örebro','linköping','norrköping','jönköping','kalmar','växjö','kristianstad','malmö','lund','trelleborg','ystad')
-   for name in distant:
-    pattern=r'(?<!\w)'+re.escape(name)+r'(?:s(?=\s+kommun)|(?=\W|$))'
-    if re.search(pattern,title) or re.search(pattern,place):return True
-   coords=_place_coords(place)
-   if coords and dist(*CITIES[city],*coords)>radius:return True
-   return False
   ranked=sorted((j for j in found.values() if not outside_radius_safety(j)),key=lambda j:(j['priority'],-j['match_score'],j['km'] if j['km'] is not None else 9999,j['id']))
   for item in ranked:
    ft=_fulltime_bucket(item,only_fulltime)
