@@ -901,6 +901,10 @@ def _jobs_impl():
     return name.title()
   if city_value.casefold() not in ('','okänd','okänt','okänd plats','ej angiven','saknas'):
    return city_value
+  description=str(ad.get('description') or '')
+  for name in sorted(set(names),key=len,reverse=True):
+   pattern=r'(?i)(?:arbetsort|placering|arbetsplats|stationeringsort)\s*[:\-]?\s*'+re.escape(name)+r'(?!\w)'
+   if re.search(pattern,description):return name.title()
   return ''
  def workplace_distance_state(ad):
   place=named_workplace(ad)
