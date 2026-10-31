@@ -901,6 +901,7 @@ def _jobs_impl():
   if not score_job(candidate,full_cv=full_cv):return
   candidate['km']=None
   candidate['review_bucket']='unknown_location'
+  candidate['location_reason']=ad.get('_location_diagnosis') or 'Platsuppgift saknas'
   candidate['location_note']='Arbetsort ej bekräftad. Avståndet till Halmstad är okänt.'
   unknown_places[_normalize_key(candidate)]=candidate
   unknown_stats['cv_relevanta']+=1
