@@ -896,6 +896,7 @@ def _jobs_impl():
   if only_fulltime and ad.get('employment_extent')=='part_time':return
   if ad.get('lat') is not None and ad.get('lon') is not None:return
   if _place_coords(ad.get('city')):return
+  if any((option.get('lat') is not None and option.get('lon') is not None) or _place_coords(option.get('city')) for option in (ad.get('location_options') or [])):return
   candidate=dict(ad)
   if not score_job(candidate,full_cv=full_cv):return
   candidate['km']=None
