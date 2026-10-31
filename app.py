@@ -890,6 +890,18 @@ def _jobs_impl():
     if not score_job(checked,full_cv=full_cv):
      found.pop(key,None)
     else:found[key]=checked
+ def collect_unknown(ad):
+  if not ad or not ad.get('id') or ad.get('license_status')=='required':return
+  if is_blocked_employer(ad):return
+  if only_fulltime and ad.get('employment_extent')=='part_time':return
+  if ad.get('lat') is not None and ad.get('lon') is not None:return
+  if _place_coords(ad.get('city')):return
+  candidate=dict(ad)
+  if not score_job(candidate,full_cv=full_cv):return
+  candidate['km']=None
+  candidate['review_bucket']='unknown_location'
+  candidate['location_note']='Arbetsort ej bekräftad. Avståndet till Halmstad är okänt.'
+  unknown_places[_normalize_key(candidate)]=candidate
  def add_parsed(ad,region_name=None):
   if ad is None:
    diagnostics['missing_license']+=1
