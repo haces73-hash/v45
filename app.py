@@ -363,16 +363,28 @@ FULL_PRIORITY=PRIORITY+tuple(FULL_CV_GROUPS)
 EXCLUDED_OCCUPATIONS=re.compile(r'(?i)\b(?:lagerarbetare|lagerpersonal|lagerchef|truckförare|orderplockare|butiksmedarbetare|butikssäljare|kassapersonal|personlig assistent|vårdbiträde|undersköterska|sjuksköterska|omsorgspersonal|kundtjänst|servicemedarbetare|receptionist|säljare|butikschef|hemtjänst|vårdpersonal|lageroperatör)\b')
 ELECTRICAL_SPECIALIST=re.compile(r'(?i)(?:elektronik|elektriker|elteknik|elinstallatör|automationstekniker|styrsystem|kretskort|pcb|lödning|elektrisk konstruktion)')
 ELECTRICAL_MANDATORY=re.compile(r'(?i)(?:\\b(?:krav|krävs|måste|ska ha|skall ha|erfarenhet av|utbildning inom)\\b.{0,85}\\b(?:el|elektronik|elteknik|automation|lödning|kretskort)\\b|\\b(?:el|elektronik|elteknik|automation|lödning|kretskort)\\b.{0,85}\\b(?:krav|krävs|måste|utbildning|erfarenhet)\\b)')
+def _possible_build_match(j):
+ """Only construction roles with a flexible qualification, not hard senior requirements."""
+ title=(j.get('title') or '').casefold()
+ desc=(j.get('description') or '')[:8500]
+ building=bool(re.search(r'(?i)(?:bygg|anläggning|betong|markarbet|grovarbet|rivning)',title))
+ if not building or SENIOR_TITLE.search(title) or SENIOR_REQUIREMENTS.search(desc):return False
+ if MANDATORY_EXPERIENCE.search(desc) and not re.search(r'(?i)(?:yrkesbevis|gesällbrev).{0,85}(?:eller|alternativt).{0,45}(?:motsvarande|likvärdig).{0,30}erfarenhet',desc):
+  return False
+ flexible=bool(re.search(r'(?i)(?:yrkesbevis|gesällbrev).{0,85}(?:eller|alternativt).{0,45}(?:motsvarande|likvärdig).{0,30}erfarenhet',desc))
+ experience=bool(re.search(r'(?i)(?:erfaren|självgående|armering|betongarbete)',desc))
+ return flexible or experience
+
 def reject_reason(j,full_cv=False):
  if is_blocked_employer(j):return 'Veterankraft'
  title=(j.get('title') or '').casefold()
  desc=(j.get('description') or '')[:8500]
  if not full_cv and EXCLUDED_OCCUPATIONS.search(title):return 'Utanför vald CV-profil'
  if SENIOR_TITLE.search(title) or SENIOR_REQUIREMENTS.search(desc):return 'Seniorroll/erfarenhetskrav'
- if REQUIRED_CERTIFICATION.search(desc):return 'Obligatoriskt yrkescertifikat'
+ if REQUIRED_CERTIFICATION.search(desc) and not ( _possible_build_match(j) and re.search(r'(?i)(?:yrkesbevis|gesällbrev).{0,85}(?:eller|alternativt).{0,45}(?:motsvarande|likvärdig).{0,30}erfarenhet',desc) ):return 'Obligatoriskt yrkescertifikat'
  if ELECTRICAL_SPECIALIST.search(title) or (ELECTRICAL_SPECIALIST.search(desc) and (ELECTRICAL_MANDATORY.search(desc) or re.search(r'(?i)(?:krav|krävs|måste|utbildning|erfarenhet).{0,90}(?:elektronik|elteknik|automation|lödning|kretskort)',desc))):
   return 'El-/elektronikspecialisering'
- if MANDATORY_EXPERIENCE.search(desc):return 'Obligatorisk längre erfarenhet'
+ if MANDATORY_EXPERIENCE.search(desc) and not _possible_build_match(j):return 'Obligatorisk längre erfarenhet'
  return None
 
 REQUIRED_CERTIFICATION=re.compile(r'(?i)(?:\b(?:yrkesbevis|gesällbrev|svetslicens|svetscertifikat|certifierad svetsare)\b.{0,55}\b(?:krav|krävs|obligatorisk)|\b(?:krav på|måste ha|ska ha)\b.{0,55}\b(?:yrkesbevis|gesällbrev|svetslicens|svetscertifikat)\b)')
@@ -467,7 +479,17 @@ def score_job(j,full_cv=False):
  professional=[x for x in skills if x not in ('Engelska','Microsoft Office')]
  j['match_reason']='CV-match: '+groups[0][0]+(' · relevanta yrkeskompetenser: '+', '.join(professional[:3]) if professional else '')+(' · kontrollera erfarenhetskrav' if MANDATORY_EXPERIENCE.search(desc) else '')
  j['cv_match_area']=groups[0][0]
- j['priority']=(FULL_PRIORITY if full_cv else PRIORITY).index(groups[0][0])+1
+ if not full_cv:
+  # Construction always ranks before wood, industry and welding.
+  # Flexible construction experience requirements are labelled for manual review.
+  possible=(groups[0][0]=='Bygg och anläggning' and _possible_build_match(j)
+            and bool(re.search(r'(?i)(?:yrkesbevis|gesällbrev|erfaren|självgående)',desc)))
+  j['building_possible_match']=bool(possible)
+  if possible:
+   j['match_reason']+=' · MÖJLIG BYGGMATCH – KONTROLLERA ERFARENHETSKRAV'
+  j['priority']= (2 if possible else 1) if groups[0][0]=='Bygg och anläggning' else (PRIORITY.index(groups[0][0])+2)
+ else:
+  j['priority']=FULL_PRIORITY.index(groups[0][0])+1
  return j
 
 
