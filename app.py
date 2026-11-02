@@ -202,13 +202,21 @@ def _municipality_value(value):
  return _known_place(value)
 
 def _workplace_places(entry):
+ """Read explicit workplace fields, including nested municipality and SCB codes."""
  if not isinstance(entry,dict):return []
- values=[entry.get(k) for k in ('municipality','municipality_name','municipality_code','municipality_concept_id','city','locality','workplace_city')]
- for key in ('address','workplace_address','location'):
+ keys=('municipality','municipality_name','municipality_code','municipality_concept_id',
+       'city','locality','workplace_city','workplace_municipality','workplace_municipality_code',
+       'kommun','kommunnamn','kommunkod')
+ values=[entry.get(k) for k in keys]
+ for key in ('address','workplace_address','workplace','location','workplace_location','geographical_area'):
   nested=entry.get(key)
   if isinstance(nested,dict):
-   values.extend(nested.get(k) for k in ('municipality','municipality_name','municipality_code','city','locality'))
+   values.extend(nested.get(k) for k in keys)
+  elif isinstance(nested,list):
+   for item in nested:
+    if isinstance(item,dict):values.extend(item.get(k) for k in keys)
  return values
+
 def _location_options(ad,text=''):
  entries=[]
  for key in ('workplace_addresses','workplaces','locations'):
@@ -224,6 +232,8 @@ def _location_options(ad,text=''):
   name=next((_municipality_value(v) for v in _workplace_places(entry) if _municipality_value(v)), '')
   if not name and entry is ad:
    name=next((_municipality_value(v) for v in _workplace_places(ad) if _municipality_value(v)), '')
+  if not name:
+   name=next((_known_place(v) for v in _workplace_places(entry) if _known_place(v)), '')
   if not name and lat is None:continue
   signature=(name,lat,lon)
   if signature not in seen:
@@ -936,6 +946,10 @@ def _jobs_impl():
       location_enrichment_stats['still_missing_location']+=1
       continue
      location_enrichment_stats['workplace_found_total']+=1
+     if verified.get('lat') is not None and verified.get('lon') is not None:
+      location_enrichment_stats['workplace_with_gps']+=1
+     else:
+      location_enrichment_stats['workplace_with_place_center']+=1
      if radius and dist(*CITIES[city],*coords)>radius:
       diagnostics['location_enrichment_outside']+=1
       continue
