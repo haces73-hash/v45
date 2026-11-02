@@ -286,7 +286,7 @@ def _remote_job_evidence(ad):
   if depth>3:return ''
   if value is True:return path+'=true'
   if isinstance(value,str):
-   normalized=re.sub(r'\\s+',' ',value.casefold()).strip()
+   normalized=re.sub(r'\s+',' ',value.casefold()).strip()
    if normalized in remote_values:return path+'='+normalized
   if isinstance(value,dict):
    for k,v in value.items():
@@ -314,15 +314,15 @@ def _remote_job_evidence(ad):
  if isinstance(description,str):
   plain=clean(description).casefold()
   # Explicit positive expressions, not incidental words such as remote equipment.
-  phrases=(r'arbet(?:a|e|et)\\s+(?:är\\s+)?på\\s+distans',
-           r'jobb(?:a|et)?\\s+på\\s+distans',r'arbet(?:a|ar)\\s+hemifrån',
-           r'jobb(?:a|et)?\\s+hemifrån',r'delvis\\s+på\\s+distans',
-           r'distansarbete',r'remote\\s+work',r'work\\s+remote',
+  phrases=(r'arbet(?:a|e|et)\s+(?:är\s+)?på\s+distans',
+           r'jobb(?:a|et)?\s+på\s+distans',r'arbet(?:a|ar)\s+hemifrån',
+           r'jobb(?:a|et)?\s+hemifrån',r'delvis\s+på\s+distans',
+           r'distansarbete',r'remote\s+work',r'work\s+remote',
            r'hybridarbete')
   for pattern in phrases:
    for match in re.finditer(pattern,plain):
     context=plain[max(0,match.start()-55):match.start()]
-    if re.search(r'(?:inte|ej|ingen|inget|utan|möjlighet\\s+saknas\\s+att)\\s+(?:\\w+\\s+){0,3}$',context):
+    if re.search(r'(?:inte|ej|ingen|inget|utan|möjlighet\s+saknas\s+att)\s+(?:\w+\s+){0,3}$',context):
      continue
     return 'description:'+match.group(0)
  return ''
