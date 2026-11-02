@@ -275,7 +275,29 @@ def application_route(ad, fallback_url='', external_source=False):
   return {'type':'check','url':fallback_url,'email':'','note':'Extern annons. Kontrollera ansökningssättet på originalwebbplatsen.'}
  return {'type':'check','url':fallback_url,'email':'','note':'Ansökningssättet kan inte bekräftas från annonsdata. Läs originalannonsen.'}
 
+def _remote_job_evidence(ad):
+ """Explicit remote placement only; never infer from generic descriptions."""
+ if not isinstance(ad,dict):return ''
+ for key in ('remote_work','remote','is_remote','fully_remote','remote_work_possible'):
+  if ad.get(key) is True:return key+'=true'
+ for key in ('workplace_address','workplace','workplace_location','location'):
+  obj=ad.get(key)
+  if not isinstance(obj,dict):continue
+  for field in ('remote_work','remote','is_remote','fully_remote'):
+   if obj.get(field) is True:return key+'.'+field+'=true'
+ for key in ('workplace_type','workplace_type_label','workplace_mode','work_location_type','remote_type'):
+  value=ad.get(key)
+  if isinstance(value,str) and value.strip().casefold() in ('remote','fully_remote','distans','distansarbete','arbete på distans'):
+   return key+'='+value
+ # JobSearch can expose placement as a Swedish display label.
+ for key in ('placement','placement_type','workplace_description'):
+  value=ad.get(key)
+  if isinstance(value,str) and value.strip().casefold() in ('arbetet är på distans','arbete på distans','distansarbete'):
+   return key+'='+value
+ return ''
+
 def parse_job(ad,source):
+ if _remote_job_evidence(ad):return None
  title=ad.get('headline') or ad.get('title') or ''
  employer=ad.get('employer') or {}; addr=ad.get('workplace_address') or {}
  desc=ad.get('description') or {}
@@ -427,6 +449,7 @@ def _first_str(*values):
   if isinstance(value,str) and value.strip():return value.strip()
  return ''
 def parse_external(ad):
+ if _remote_job_evidence(ad):return None
  """Normalize JobAd Links entries; skip ads without a trustworthy original URL."""
  if not isinstance(ad,dict):return None
  links=_as_list(ad.get('source_links'))
@@ -744,6 +767,9 @@ def _classify_listing(j):
  return 'qualified'
 
 def _add_candidate(ad,found,city,radius,full_cv=False,diagnostics=None):
+ if ad and ad.get('_remote_evidence'):
+  if diagnostics is not None:diagnostics['rejected']['Distansarbete'].add(str(ad.get('id')))
+  return
  if not ad or not ad.get('id'):return
  if diagnostics is not None:
   diagnostics['seen_ids'].add(str(ad['id']))
@@ -863,6 +889,10 @@ def _jobs_impl():
    parsed['_location_diagnosis']=_location_diagnosis(raw,parsed)
   add_parsed(_enrich_jobsearch_location(raw,parsed,diagnostics),region_name)
  def add_external(raw):
+  if _remote_job_evidence(raw):
+   review_stats['remote_excluded_external']+=1
+   if _linked_jobsearch_id(raw)=='31668095':review_stats['reference_31668095_remote_detected']+=1
+   return
   parsed=parse_external(raw)
   record_sample(raw,parsed,'JobAd Links / externa jobbsajter')
   if parsed:
@@ -1001,6 +1031,9 @@ def _jobs_impl():
   """Diagnostic review pool, independent of strict verified-job eligibility."""
   if not radius or not ad:return
   review_stats['parsed']+=1
+  if ad.get('_remote_evidence'):
+   review_stats['remote_excluded_external']+=1
+   return
   if not ad.get('url'):
    review_stats['missing_original_url']+=1
    return
@@ -1271,6 +1304,10 @@ def _jobs_impl():
   if (_norm_match(detail.get('headline') or detail.get('title'))!=_norm_match(candidate.get('title'))
       or not employer_name or _norm_match(employer_name)!=_norm_match(candidate.get('company'))):
    review_stats['original_identity_mismatch']+=1
+   return
+  if _remote_job_evidence(detail):
+   review_stats['original_remote_excluded']+=1
+   if ident=='31668095':review_stats['reference_31668095_remote_detected']+=1
    return
   verified=parse_job(detail,'Platsbanken / JobSearch')
   if verified is None:
