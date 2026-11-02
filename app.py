@@ -276,24 +276,55 @@ def application_route(ad, fallback_url='', external_source=False):
  return {'type':'check','url':fallback_url,'email':'','note':'Ansökningssättet kan inte bekräftas från annonsdata. Läs originalannonsen.'}
 
 def _remote_job_evidence(ad):
- """Explicit remote placement only; never infer from generic descriptions."""
+ """Find explicit remote/hybrid placement in structured data or positive ad text.
+ Do not treat missing municipality, negated remote work or mere country Sweden as remote.
+ """
  if not isinstance(ad,dict):return ''
- for key in ('remote_work','remote','is_remote','fully_remote','remote_work_possible'):
-  if ad.get(key) is True:return key+'=true'
- for key in ('workplace_address','workplace','workplace_location','location'):
-  obj=ad.get(key)
-  if not isinstance(obj,dict):continue
-  for field in ('remote_work','remote','is_remote','fully_remote'):
-   if obj.get(field) is True:return key+'.'+field+'=true'
- for key in ('workplace_type','workplace_type_label','workplace_mode','work_location_type','remote_type'):
-  value=ad.get(key)
-  if isinstance(value,str) and value.strip().casefold() in ('remote','fully_remote','distans','distansarbete','arbete på distans'):
-   return key+'='+value
- # JobSearch can expose placement as a Swedish display label.
- for key in ('placement','placement_type','workplace_description'):
-  value=ad.get(key)
-  if isinstance(value,str) and value.strip().casefold() in ('arbetet är på distans','arbete på distans','distansarbete'):
-   return key+'='+value
+ remote_values=('remote','hybrid','fully remote','partly remote','distans','distansarbete',
+                'arbete på distans','arbetet är på distans','hybridarbete','delvis på distans')
+ def marked(value,path,depth=0):
+  if depth>3:return ''
+  if value is True:return path+'=true'
+  if isinstance(value,str):
+   normalized=re.sub(r'\\s+',' ',value.casefold()).strip()
+   if normalized in remote_values:return path+'='+normalized
+  if isinstance(value,dict):
+   for k,v in value.items():
+    if k in ('name','label','value','type','description','workplace_model','workplaceModel',
+             'remote','is_remote','remote_work','isRemote','remoteWork','hybrid',
+             'placement','workplace_type','workplaceType','model'):
+     result=marked(v,path+'.'+k,depth+1)
+     if result:return result
+  if isinstance(value,list):
+   for index,item in enumerate(value[:8]):
+    result=marked(item,path+'['+str(index)+']',depth+1)
+    if result:return result
+  return ''
+ for key in ('remote','remote_work','is_remote','fully_remote','remote_work_possible',
+             'isRemote','remoteWork','workplace_model','workplaceModel','workplace_type',
+             'workplace_type_label','workplace_mode','work_location_type','remote_type',
+             'placement','placement_type','workplace_description','workplace_address',
+             'workplace','workplace_location','location'):
+  if key in ad:
+   result=marked(ad[key],key)
+   if result:return result
+ description=ad.get('description') or ''
+ if isinstance(description,dict):
+  description=description.get('text') or description.get('text_formatted') or ''
+ if isinstance(description,str):
+  plain=clean(description).casefold()
+  # Explicit positive expressions, not incidental words such as remote equipment.
+  phrases=(r'arbet(?:a|e|et)\\s+(?:är\\s+)?på\\s+distans',
+           r'jobb(?:a|et)?\\s+på\\s+distans',r'arbet(?:a|ar)\\s+hemifrån',
+           r'jobb(?:a|et)?\\s+hemifrån',r'delvis\\s+på\\s+distans',
+           r'distansarbete',r'remote\\s+work',r'work\\s+remote',
+           r'hybridarbete')
+  for pattern in phrases:
+   for match in re.finditer(pattern,plain):
+    context=plain[max(0,match.start()-55):match.start()]
+    if re.search(r'(?:inte|ej|ingen|inget|utan|möjlighet\\s+saknas\\s+att)\\s+(?:\\w+\\s+){0,3}$',context):
+     continue
+    return 'description:'+match.group(0)
  return ''
 
 def parse_job(ad,source):
