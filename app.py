@@ -381,7 +381,7 @@ def reject_reason(j,full_cv=False):
  desc=(j.get('description') or '')[:8500]
  if not full_cv and EXCLUDED_OCCUPATIONS.search(title):return 'Utanför vald CV-profil'
  if SENIOR_TITLE.search(title) or SENIOR_REQUIREMENTS.search(desc):return 'Seniorroll/erfarenhetskrav'
- if REQUIRED_CERTIFICATION.search(desc) and not _possible_build_match(j):return 'Obligatoriskt yrkescertifikat'
+ if REQUIRED_CERTIFICATION.search(desc) and not ( _possible_build_match(j) and re.search(r'(?i)(?:yrkesbevis|gesällbrev).{0,85}(?:eller|alternativt).{0,45}(?:motsvarande|likvärdig).{0,30}erfarenhet',desc) ):return 'Obligatoriskt yrkescertifikat'
  if ELECTRICAL_SPECIALIST.search(title) or (ELECTRICAL_SPECIALIST.search(desc) and (ELECTRICAL_MANDATORY.search(desc) or re.search(r'(?i)(?:krav|krävs|måste|utbildning|erfarenhet).{0,90}(?:elektronik|elteknik|automation|lödning|kretskort)',desc))):
   return 'El-/elektronikspecialisering'
  if MANDATORY_EXPERIENCE.search(desc) and not _possible_build_match(j):return 'Obligatorisk längre erfarenhet'
