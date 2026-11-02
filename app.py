@@ -202,13 +202,21 @@ def _municipality_value(value):
  return _known_place(value)
 
 def _workplace_places(entry):
+ """Read explicit workplace fields, including nested municipality and SCB codes."""
  if not isinstance(entry,dict):return []
- values=[entry.get(k) for k in ('municipality','municipality_name','municipality_code','municipality_concept_id','city','locality','workplace_city')]
- for key in ('address','workplace_address','location'):
+ keys=('municipality','municipality_name','municipality_code','municipality_concept_id',
+       'city','locality','workplace_city','workplace_municipality','workplace_municipality_code',
+       'kommun','kommunnamn','kommunkod')
+ values=[entry.get(k) for k in keys]
+ for key in ('address','workplace_address','workplace','location','workplace_location','geographical_area'):
   nested=entry.get(key)
   if isinstance(nested,dict):
-   values.extend(nested.get(k) for k in ('municipality','municipality_name','municipality_code','city','locality'))
+   values.extend(nested.get(k) for k in keys)
+  elif isinstance(nested,list):
+   for item in nested:
+    if isinstance(item,dict):values.extend(item.get(k) for k in keys)
  return values
+
 def _location_options(ad,text=''):
  entries=[]
  for key in ('workplace_addresses','workplaces','locations'):
