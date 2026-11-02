@@ -13,6 +13,10 @@ BUILD_TERMS=['anläggningsarbetare','markarbetare','byggarbetare','byggmedhjälp
              'betongarbetare','grovarbetare','byggnadsarbetare','byggmontör',
              'mark och anläggning','anläggningsmedarbetare','hjälparbetare bygg','bygg lärling','bygglärling','lärling anläggning','lärling snickare','byggservice','rivningsarbetare','mark och väg',
              'träarbetare bygg','byggnadsträarbetare','vägarbetare']
+BUILD_LOCAL_QUERIES=['betongarbetare Halmstad','betongarbete Halmstad','byggarbetare Halmstad','bygg och anläggning Halmstad','anläggningsarbetare Halmstad','markarbetare Halmstad','byggmedhjälpare Halmstad','grovarbetare Halmstad','armerare Halmstad','betongarbetare Laholm','betongarbetare Falkenberg']
+BUILD_REFERENCE_ID='31451515'
+def _construction_title(value):
+ return bool(re.search(r'(?i)(?:bygg|anläggning|betong|markarbet|grovarbet|armerar|rivning)',str(value or '')))
 def search_terms(full_cv=False):
  return list(dict.fromkeys(BUILD_TERMS+TERMS+(FULL_CV_EXTRA_TERMS if full_cv else [])))
 def match_counts(found):
@@ -925,6 +929,7 @@ def _jobs_impl():
  radius=radius if radius in (0,10,30,50,100) else 30
  from collections import defaultdict
  found={};unknown_places={};unknown_stats=defaultdict(int);errors=[];sources_ok=set();external_candidates={};location_enrichment_candidates={};location_enrichment_stats=defaultdict(int);title_location_review={};review_stats=defaultdict(int)
+ build_diag={'found':set(),'qualified':set(),'possible':set(),'rejected':set(),'reference_seen':False,'reference_stage':'Inte hittad i API-sökresultat'}
  diagnostics={'license_conflicts':0,'license_block_rows':[],'license_evidence':defaultdict(int),'enrichment_by_category':defaultdict(lambda:{'attempted':0,'completed':0,'license_rejected':0}),'fulltime_excluded':set(),'fulltime_unknown':set(),'source_id_attempted':set(),'source_id_missing':0,'source_id_completed':0,'source_id_failed':0,'source_id_mismatch':0,'source_id_license_rejected':0,'location_samples':defaultdict(dict),'seen_ids':set(),'rejected':defaultdict(set),'missing_license':0,'source_seen':defaultdict(set),'unknown_by_source':defaultdict(set),'detail_attempt_ids':set(),'detail_resolved_ids':set(),'detail_failed_ids':set(),'unknown_reasons':defaultdict(set)}
  def record_sample(raw,parsed,source):
   if parsed and (parsed.get('lat') is not None or _place_coords(parsed.get('city'))):return
@@ -935,6 +940,12 @@ def _jobs_impl():
   if key not in bucket and len(bucket)<4:
    bucket[key]={'diagnos':reason,'format':shape}
  def add_jobsearch(raw,region_name=None):
+  if isinstance(raw,dict) and _construction_title(raw.get('headline') or raw.get('title')):
+   ident=str(raw.get('id') or '')
+   if ident:build_diag['found'].add(ident)
+   if ident==BUILD_REFERENCE_ID:
+    build_diag['reference_seen']=True
+    build_diag['reference_stage']='Hittad i JobSearch'
   parsed=parse_job(raw,'Platsbanken / JobSearch')
   record_sample(raw,parsed,'Platsbanken / JobSearch')
   if parsed:
@@ -1192,7 +1203,15 @@ def _jobs_impl():
    if radius:collect_unknown(ad)
    _add_candidate(ad,found,city,radius,full_cv=full_cv,diagnostics=diagnostics)
  def summary():
-  return {'unknown_review_counts':dict(unknown_stats),'rubrikort_granskning':len(title_location_review),'manuell_platsgranskning':dict(review_stats),'platskomplettering':dict(location_enrichment_stats,**{k:diagnostics.get(k,0) for k in ('location_enrichment_attempted','location_enrichment_resolved','location_enrichment_outside','location_enrichment_mismatch')}),'granskade_unika_annonser':len(diagnostics['seen_ids']),
+  for job in found.values():
+   if _construction_title(job.get('title')):
+    ident=str(job.get('id'))
+    (build_diag['possible'] if job.get('building_possible_match') else build_diag['qualified']).add(ident)
+    if ident==BUILD_REFERENCE_ID:build_diag['reference_stage']='Godkänd byggkandidat'
+  build_report={k:(len(v) if isinstance(v,set) else v) for k,v in build_diag.items()}
+  if build_diag['reference_seen'] and BUILD_REFERENCE_ID not in build_diag['qualified'] and BUILD_REFERENCE_ID not in build_diag['possible']:
+   build_report['reference_stage']='Hittad men inte kvalificerad: kontrollera plats, körkort och erfarenhet'
+  return {'byggsokning_v105':build_report,'unknown_review_counts':dict(unknown_stats),'rubrikort_granskning':len(title_location_review),'manuell_platsgranskning':dict(review_stats),'platskomplettering':dict(location_enrichment_stats,**{k:diagnostics.get(k,0) for k in ('location_enrichment_attempted','location_enrichment_resolved','location_enrichment_outside','location_enrichment_mismatch')}),'granskade_unika_annonser':len(diagnostics['seen_ids']),
           'uteslutna_per_orsak':{k:len(v) for k,v in diagnostics['rejected'].items()},
           'korkortskrav_vid_inlasning':diagnostics['missing_license'],
           'kvalificerade_unika':len(found),
@@ -1270,7 +1289,7 @@ def _jobs_impl():
    if variant=='radius' and radius:
     params.update({'position':f"{CITIES[city][0]},{CITIES[city][1]}",'position.radius':radius})
    url='https://jobsearch.api.jobtechdev.se/search'
-   timeout=6
+   timeout=7 if variant=='local_build' else 6
   else:
    params={'q':term,'limit':40,'sort':'relevance'}
    url='https://links.api.jobtechdev.se/joblinks'
@@ -1282,7 +1301,7 @@ def _jobs_impl():
   else:hits=payload.get('hits',payload.get('joblinks',payload.get('results',[]))) if isinstance(payload,dict) else payload
   if not isinstance(hits,list):raise ValueError('Oväntat svarformat')
   return kind,hits
- tasks=[]
+ tasks=[('jobsearch',term,'local_build') for term in BUILD_LOCAL_QUERIES] if region=='radius' and city=='Halmstad' else []
  for term in terms:
   tasks.append(('jobsearch',term,'radius' if radius else 'city'))
   if term in BUILD_TERMS and radius:tasks.append(('jobsearch',term,'city'))
