@@ -232,6 +232,8 @@ def _location_options(ad,text=''):
   name=next((_municipality_value(v) for v in _workplace_places(entry) if _municipality_value(v)), '')
   if not name and entry is ad:
    name=next((_municipality_value(v) for v in _workplace_places(ad) if _municipality_value(v)), '')
+  if not name:
+   name=next((_known_place(v) for v in _workplace_places(entry) if _known_place(v)), '')
   if not name and lat is None:continue
   signature=(name,lat,lon)
   if signature not in seen:
