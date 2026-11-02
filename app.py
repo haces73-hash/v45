@@ -1236,8 +1236,77 @@ def _jobs_impl():
  # Prefer them in the currently empty unknown-location section, max five total.
  title_review_ranked=sorted((v for k,v in title_location_review.items() if k not in found),
                             key=lambda j:(j['review_hint_priority'],j['priority'],-j['match_score'],str(j['id'])))
- unknown_ranked=(title_review_ranked+sorted((v for k,v in unknown_pool.items()
-                   if k not in title_location_review),key=lambda j:(j['priority'],-j['match_score'],str(j['id']))))[:5]
+ # Validate original JobSearch records before displaying any manual-review cards.
+ # This is deliberately separate from the strict top-five job selection.
+ from concurrent.futures import ThreadPoolExecutor,as_completed
+ review_order=title_review_ranked+sorted((v for k,v in unknown_pool.items()
+                  if k not in title_location_review),key=lambda j:(j['priority'],-j['match_score'],str(j['id'])))
+ review_checked=[]
+ review_ids=set()
+ review_stats['original_lookup_budget']=20
+ def review_detail(entry):
+  ident,candidate=entry
+  response=requests.get('https://jobsearch.api.jobtechdev.se/ad/'+ident,
+                        timeout=4,headers={'Accept':'application/json','User-Agent':'Jobb4kevin/100'})
+  response.raise_for_status()
+  return response.json()
+ review_entries=[]
+ for candidate in review_order:
+  ident=_linked_jobsearch_id(candidate)
+  if not ident:
+   review_stats['no_verified_jobsearch_id']+=1
+   continue
+  if ident in review_ids:continue
+  review_ids.add(ident)
+  if len(review_entries)>=20:
+   review_stats['lookup_budget_exceeded']+=1
+   continue
+  review_entries.append((ident,candidate))
+ review_results={}
+ with ThreadPoolExecutor(max_workers=5) as pool:
+  futures={pool.submit(review_detail,entry):entry for entry in review_entries}
+  for future in as_completed(futures):
+   ident,candidate=futures[future]
+   review_stats['original_lookup_attempts']+=1
+   try:
+    detail=future.result()
+    if not isinstance(detail,dict) or str(detail.get('id'))!=ident:
+     review_stats['original_id_mismatch']+=1
+     continue
+    employer=detail.get('employer') or {}
+    employer_name=employer.get('name','') if isinstance(employer,dict) else ''
+    if (_norm_match(detail.get('headline') or detail.get('title'))!=_norm_match(candidate.get('title'))
+        or not employer_name or _norm_match(employer_name)!=_norm_match(candidate.get('company'))):
+     review_stats['original_identity_mismatch']+=1
+     continue
+    verified=parse_job(detail,'Platsbanken / JobSearch')
+    if verified is None:
+     review_stats['original_rejected_by_requirements']+=1
+     continue
+    state,place=workplace_distance_state(verified)
+    if verified.get('lat') is not None and verified.get('lon') is not None:
+     km=dist(*CITIES[city],verified['lat'],verified['lon'])
+     state='outside' if km>radius else 'inside'
+     place=verified.get('city') or 'GPS'
+    if state=='outside':
+     review_stats['original_outside_radius']+=1
+     continue
+    if state=='inside':
+     review_stats['original_within_radius']+=1
+     # Already has a known workplace: not a missing-location review case.
+     continue
+    review_stats['original_still_unknown']+=1
+    candidate['location_reason']='Originalannons kontrollerad, men arbetsort kunde inte bekräftas'
+    candidate['detail_check_status']='Original kontrollerat – plats saknas'
+    review_results[ident]=candidate
+   except (requests.RequestException,ValueError,TypeError,KeyError):
+    review_stats['original_lookup_failed']+=1
+    # Never claim the workplace was verified when the source cannot be read.
+    candidate['location_reason']='Originalannonsens arbetsort kunde inte kontrolleras automatiskt'
+    candidate['detail_check_status']='Originaluppslag misslyckades'
+    review_results[ident]=candidate
+ unknown_ranked=[review_results[ident] for ident,_ in review_entries if ident in review_results][:5]
+ review_stats['shown_after_original_check']=len(unknown_ranked)
  diagnostics['title_location_review_count']=len(title_location_review)
  diagnostics['unknown_review_counts']=dict(unknown_stats)
  diagnostics['unknown_review_counts']['visas']=len(unknown_ranked)
