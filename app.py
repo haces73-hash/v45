@@ -835,7 +835,7 @@ def _jobs_impl():
  except ValueError:radius=30
  radius=radius if radius in (0,10,30,50,100) else 30
  from collections import defaultdict
- found={};unknown_places={};unknown_stats=defaultdict(int);errors=[];sources_ok=set();external_candidates={}
+ found={};unknown_places={};unknown_stats=defaultdict(int);errors=[];sources_ok=set();external_candidates={};location_enrichment_candidates={}
  diagnostics={'license_conflicts':0,'license_block_rows':[],'license_evidence':defaultdict(int),'enrichment_by_category':defaultdict(lambda:{'attempted':0,'completed':0,'license_rejected':0}),'fulltime_excluded':set(),'fulltime_unknown':set(),'source_id_attempted':set(),'source_id_missing':0,'source_id_completed':0,'source_id_failed':0,'source_id_mismatch':0,'source_id_license_rejected':0,'location_samples':defaultdict(dict),'seen_ids':set(),'rejected':defaultdict(set),'missing_license':0,'source_seen':defaultdict(set),'unknown_by_source':defaultdict(set),'detail_attempt_ids':set(),'detail_resolved_ids':set(),'detail_failed_ids':set(),'unknown_reasons':defaultdict(set)}
  def record_sample(raw,parsed,source):
   if parsed and (parsed.get('lat') is not None or _place_coords(parsed.get('city'))):return
@@ -865,6 +865,49 @@ def _jobs_impl():
    key=_normalize_key(parsed)
    if key in found and found[key].get('id')==parsed.get('id'):
     external_candidates[key]=raw
+   elif radius and not parsed.get('city') and parsed.get('lat') is None:
+    # Source-only entries are never accepted without verified workplace data.
+    ident=_linked_jobsearch_id(raw)
+    if ident and score_job(dict(parsed),full_cv=full_cv):
+     location_enrichment_candidates.setdefault(ident,(raw,parsed))
+ def enrich_missing_workplaces():
+  # Only trusted Platsbanken IDs, never JobAd Links' internal identifiers.
+  # A small fixed budget avoids a new 30-second request waterfall.
+  diagnostics['location_enrichment_attempted']=0
+  diagnostics['location_enrichment_resolved']=0
+  diagnostics['location_enrichment_outside']=0
+  diagnostics['location_enrichment_mismatch']=0
+  for ident,(raw,ad) in list(location_enrichment_candidates.items())[:5]:
+   diagnostics['location_enrichment_attempted']+=1
+   try:
+    response=requests.get('https://jobsearch.api.jobtechdev.se/ad/'+ident,timeout=3,
+      headers={'Accept':'application/json','User-Agent':'Jobb4kevin/94'})
+    response.raise_for_status()
+    detail=response.json()
+    if not isinstance(detail,dict) or str(detail.get('id'))!=ident:
+     diagnostics['location_enrichment_mismatch']+=1
+     continue
+    employer=detail.get('employer') or {}
+    employer_name=employer.get('name','') if isinstance(employer,dict) else ''
+    if (_norm_match(detail.get('headline') or detail.get('title'))!=_norm_match(ad.get('title'))
+        or not employer_name or _norm_match(employer_name)!=_norm_match(ad.get('company'))):
+     diagnostics['location_enrichment_mismatch']+=1
+     continue
+    verified=parse_job(detail,'Platsbanken / JobSearch')
+    if not verified:continue
+    workplace=verified.get('city')
+    coords=_place_coords(workplace)
+    if not coords and verified.get('lat') is None:continue
+    if coords and radius and dist(*CITIES[city],*coords)>radius:
+     diagnostics['location_enrichment_outside']+=1
+     continue
+    # Preserve canonical source details and re-run all normal matching filters.
+    verified['_origin']=_diagnostic_source('jobsearch')
+    verified['_location_diagnosis']='Arbetsort kompletterad via verifierat Platsbanken-ID'
+    add_parsed(verified)
+    diagnostics['location_enrichment_resolved']+=1
+   except (requests.RequestException,ValueError,TypeError,KeyError):
+    continue
  def enrich_globally():
   eligible=[(key,found[key],raw) for key,raw in external_candidates.items()
             if key in found and found[key].get('verification_status')=='unverified']
@@ -950,7 +993,7 @@ def _jobs_impl():
    if radius:collect_unknown(ad)
    _add_candidate(ad,found,city,radius,full_cv=full_cv,diagnostics=diagnostics)
  def summary():
-  return {'unknown_review_counts':dict(unknown_stats),'granskade_unika_annonser':len(diagnostics['seen_ids']),
+  return {'unknown_review_counts':dict(unknown_stats),'platskomplettering':{k:diagnostics.get(k,0) for k in ('location_enrichment_attempted','location_enrichment_resolved','location_enrichment_outside','location_enrichment_mismatch')},'granskade_unika_annonser':len(diagnostics['seen_ids']),
           'uteslutna_per_orsak':{k:len(v) for k,v in diagnostics['rejected'].items()},
           'korkortskrav_vid_inlasning':diagnostics['missing_license'],
           'kvalificerade_unika':len(found),
@@ -1060,6 +1103,7 @@ def _jobs_impl():
    except (requests.RequestException,ValueError,KeyError,TypeError) as e:
     if len(errors)<8:errors.append('Sökkälla: '+str(e)[:110])
 
+ enrich_missing_workplaces()
  enrich_globally()
  ranked=sorted(found.values(),key=lambda j:(j['priority'],-j['match_score'],j['km'] if j['km'] is not None else 9999,j['id']))
  for item in ranked:
