@@ -946,6 +946,10 @@ def _jobs_impl():
       location_enrichment_stats['still_missing_location']+=1
       continue
      location_enrichment_stats['workplace_found_total']+=1
+     if verified.get('lat') is not None and verified.get('lon') is not None:
+      location_enrichment_stats['workplace_with_gps']+=1
+     else:
+      location_enrichment_stats['workplace_with_place_center']+=1
      if radius and dist(*CITIES[city],*coords)>radius:
       diagnostics['location_enrichment_outside']+=1
       continue
