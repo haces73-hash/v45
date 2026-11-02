@@ -877,55 +877,81 @@ def _jobs_impl():
     else:
      location_enrichment_stats['no_cv_match']+=1
  def enrich_missing_workplaces():
-  # Only trusted Platsbanken IDs, never JobAd Links' internal identifiers.
-  # A small fixed budget avoids a new 30-second request waterfall.
+  """Prioritize CV relevance, then check at most 12 canonical ads in parallel."""
+  from concurrent.futures import ThreadPoolExecutor,as_completed
   diagnostics['location_enrichment_attempted']=0
   diagnostics['location_enrichment_resolved']=0
   diagnostics['location_enrichment_outside']=0
   diagnostics['location_enrichment_mismatch']=0
   location_enrichment_stats['unique_eligible_ids']=len(location_enrichment_candidates)
-  location_enrichment_stats['budget_skipped']=max(0,len(location_enrichment_candidates)-5)
-  for ident,(raw,ad) in list(location_enrichment_candidates.items())[:5]:
-   diagnostics['location_enrichment_attempted']+=1
-   try:
-    response=requests.get('https://jobsearch.api.jobtechdev.se/ad/'+ident,timeout=3,
-      headers={'Accept':'application/json','User-Agent':'Jobb4kevin/94'})
-    response.raise_for_status()
-    detail=response.json()
-    if not isinstance(detail,dict) or str(detail.get('id'))!=ident:
-     diagnostics['location_enrichment_mismatch']+=1
+  # Local place mentions are a ranking hint ONLY, never proof of workplace.
+  local_names=('halmstad','laholm','fyllinge','oskarström','harplinge',
+               'getinge','simlångsdalen','trönninge','veinge','mellbystrand')
+  def priority(entry):
+   ident,(raw,ad)=entry
+   candidate=score_job(dict(ad),full_cv=full_cv) or {}
+   title=str(ad.get('title') or '').casefold()
+   description=str(ad.get('description') or '')[:1200].casefold()
+   local_hint=any(re.search(r'(?<!\\w)'+re.escape(name)+r'(?!\\w)',title+' '+description)
+                  for name in local_names)
+   return (candidate.get('priority',99),-int(bool(local_hint)),
+           -candidate.get('match_score',0),str(ident))
+  selected=sorted(location_enrichment_candidates.items(),key=priority)[:12]
+  location_enrichment_stats['budget_skipped']=max(0,len(location_enrichment_candidates)-len(selected))
+  location_enrichment_stats['selected_with_local_hint']=sum(
+   any(name in (str(ad.get('title') or '')+' '+str(ad.get('description') or '')[:1200]).casefold()
+       for name in local_names) for _,(_,ad) in selected)
+  def fetch_detail(entry):
+   ident,_=entry
+   response=requests.get('https://jobsearch.api.jobtechdev.se/ad/'+ident,timeout=4,
+     headers={'Accept':'application/json','User-Agent':'Jobb4kevin/96'})
+   response.raise_for_status()
+   return response.json()
+  with ThreadPoolExecutor(max_workers=4) as pool:
+   futures={pool.submit(fetch_detail,entry):entry for entry in selected}
+   for future in as_completed(futures):
+    ident,(raw,ad)=futures[future]
+    diagnostics['location_enrichment_attempted']+=1
+    try:
+     detail=future.result()
+     if not isinstance(detail,dict) or str(detail.get('id'))!=ident:
+      diagnostics['location_enrichment_mismatch']+=1
+      continue
+     employer=detail.get('employer') or {}
+     employer_name=employer.get('name','') if isinstance(employer,dict) else ''
+     if (_norm_match(detail.get('headline') or detail.get('title'))!=_norm_match(ad.get('title'))
+         or not employer_name or _norm_match(employer_name)!=_norm_match(ad.get('company'))):
+      diagnostics['location_enrichment_mismatch']+=1
+      continue
+     verified=parse_job(detail,'Platsbanken / JobSearch')
+     if not verified:
+      location_enrichment_stats['rejected_on_full_ad']+=1
+      continue
+     coords=None
+     if verified.get('lat') is not None and verified.get('lon') is not None:
+      coords=(verified['lat'],verified['lon'])
+     else:
+      coords=_place_coords(verified.get('city'))
+     if not coords:
+      location_enrichment_stats['still_missing_location']+=1
+      continue
+     location_enrichment_stats['workplace_found_total']+=1
+     if radius and dist(*CITIES[city],*coords)>radius:
+      diagnostics['location_enrichment_outside']+=1
+      continue
+     location_enrichment_stats['workplace_within_radius']+=1
+     verified['_origin']=_diagnostic_source('jobsearch')
+     verified['_location_diagnosis']='Arbetsort kompletterad via verifierat Platsbanken-ID'
+     before_count=len(found)
+     add_parsed(verified)
+     if len(found)>before_count:
+      location_enrichment_stats['added_to_local_pool']+=1
+     else:
+      location_enrichment_stats['not_added_after_filters']+=1
+     diagnostics['location_enrichment_resolved']+=1
+    except (requests.RequestException,ValueError,TypeError,KeyError):
+     location_enrichment_stats['lookup_failed']+=1
      continue
-    employer=detail.get('employer') or {}
-    employer_name=employer.get('name','') if isinstance(employer,dict) else ''
-    if (_norm_match(detail.get('headline') or detail.get('title'))!=_norm_match(ad.get('title'))
-        or not employer_name or _norm_match(employer_name)!=_norm_match(ad.get('company'))):
-     diagnostics['location_enrichment_mismatch']+=1
-     continue
-    verified=parse_job(detail,'Platsbanken / JobSearch')
-    if not verified:
-     location_enrichment_stats['rejected_on_full_ad']+=1
-     continue
-    workplace=verified.get('city')
-    coords=_place_coords(workplace)
-    if not coords and verified.get('lat') is None:
-     location_enrichment_stats['still_missing_location']+=1
-     continue
-    if coords and radius and dist(*CITIES[city],*coords)>radius:
-     diagnostics['location_enrichment_outside']+=1
-     continue
-    # Preserve canonical source details and re-run all normal matching filters.
-    verified['_origin']=_diagnostic_source('jobsearch')
-    verified['_location_diagnosis']='Arbetsort kompletterad via verifierat Platsbanken-ID'
-    before_count=len(found)
-    add_parsed(verified)
-    if len(found)>before_count:
-     location_enrichment_stats['added_to_local_pool']+=1
-    else:
-     location_enrichment_stats['not_added_after_filters']+=1
-    diagnostics['location_enrichment_resolved']+=1
-   except (requests.RequestException,ValueError,TypeError,KeyError):
-    location_enrichment_stats['lookup_failed']+=1
-    continue
  def enrich_globally():
   eligible=[(key,found[key],raw) for key,raw in external_candidates.items()
             if key in found and found[key].get('verification_status')=='unverified']
