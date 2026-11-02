@@ -845,7 +845,7 @@ def _jobs_impl():
  except ValueError:radius=30
  radius=radius if radius in (0,10,30,50,100) else 30
  from collections import defaultdict
- found={};unknown_places={};unknown_stats=defaultdict(int);errors=[];sources_ok=set();external_candidates={};location_enrichment_candidates={};location_enrichment_stats=defaultdict(int);title_location_review={}
+ found={};unknown_places={};unknown_stats=defaultdict(int);errors=[];sources_ok=set();external_candidates={};location_enrichment_candidates={};location_enrichment_stats=defaultdict(int);title_location_review={};review_stats=defaultdict(int)
  diagnostics={'license_conflicts':0,'license_block_rows':[],'license_evidence':defaultdict(int),'enrichment_by_category':defaultdict(lambda:{'attempted':0,'completed':0,'license_rejected':0}),'fulltime_excluded':set(),'fulltime_unknown':set(),'source_id_attempted':set(),'source_id_missing':0,'source_id_completed':0,'source_id_failed':0,'source_id_mismatch':0,'source_id_license_rejected':0,'location_samples':defaultdict(dict),'seen_ids':set(),'rejected':defaultdict(set),'missing_license':0,'source_seen':defaultdict(set),'unknown_by_source':defaultdict(set),'detail_attempt_ids':set(),'detail_resolved_ids':set(),'detail_failed_ids':set(),'unknown_reasons':defaultdict(set)}
  def record_sample(raw,parsed,source):
   if parsed and (parsed.get('lat') is not None or _place_coords(parsed.get('city'))):return
@@ -998,33 +998,58 @@ def _jobs_impl():
   if explicit:return explicit
   return ''
  def collect_title_hint(ad):
-  """Offer a title-only local place hint for manual review, never as a verified job."""
-  if not radius or not ad or not ad.get('url'):return
-  if ad.get('license_status')=='required' or is_blocked_employer(ad):return
-  if only_fulltime and ad.get('employment_extent')=='part_time':return
+  """Diagnostic review pool, independent of strict verified-job eligibility."""
+  if not radius or not ad:return
+  review_stats['parsed']+=1
+  if not ad.get('url'):
+   review_stats['missing_original_url']+=1
+   return
+  if ad.get('license_status')=='required':
+   review_stats['mandatory_license']+=1
+   return
+  if is_blocked_employer(ad) or (only_fulltime and ad.get('employment_extent')=='part_time'):
+   review_stats['other_hard_exclusions']+=1
+   return
   title_place=swedish_places.find_in_title(ad.get('title'))
-  if not title_place:return
-  coords=_place_coords(title_place)
-  if not coords:return
-  hint_km=dist(*CITIES[city],*coords)
-  if hint_km>radius:return
-  # Do not propose an ad whose actual structured workplace is known.
-  if ad.get('lat') is not None or ad.get('lon') is not None:return
-  if _place_coords(ad.get('city')):return
-  if any(_place_coords(option.get('city')) or option.get('lat') is not None
-         for option in (ad.get('location_options') or [])):return
+  title_coords=_place_coords(title_place) if title_place else None
+  if title_place:review_stats['title_place_detected']+=1
+  local_title=bool(title_coords and dist(*CITIES[city],*title_coords)<=radius)
+  if local_title:review_stats['local_title_detected']+=1
+  # A title hint must never override known workplace evidence.
+  if ad.get('lat') is not None or ad.get('lon') is not None or _place_coords(ad.get('city')) or any(
+      _place_coords(option.get('city')) or option.get('lat') is not None
+      for option in (ad.get('location_options') or [])):
+   review_stats['known_workplace']+=1
+   return
   labeled=swedish_places.find_labeled_workplace(ad.get('description'))
-  if labeled and labeled.casefold()!=title_place.casefold():return
+  if labeled:
+   review_stats['explicit_workplace_in_text']+=1
+   return
+  if title_place and title_coords and not local_title:
+   review_stats['distant_title_place']+=1
+   return
   candidate=dict(ad)
-  if not score_job(candidate,full_cv=full_cv):return
+  scored=score_job(candidate,full_cv=full_cv)
+  if scored:
+   review_stats['cv_relevant']+=1
+  else:
+   review_stats['not_cv_relevant']+=1
+   # The manual inspection panel is not the normal job shortlist.
+   # Avoid senior, unrelated and explicitly disqualified postings.
+   return
   candidate['km']=None
   candidate['workplace_verified']=False
   candidate['review_bucket']='unknown_location'
-  candidate['title_location_hint']=title_place.title()
-  candidate['title_location_hint_km']=hint_km
-  candidate['location_reason']='Ortnamn i rubriken – arbetsort saknas i verifierade platsfält'
-  candidate['location_note']='Rubriken nämner '+title_place.title()+', cirka '+str(hint_km)+' km från '+city+'. Detta är INTE verifierad arbetsort.'
-  title_location_review[_normalize_key(candidate)]=candidate
+  candidate['title_location_hint']=title_place.title() if local_title else ''
+  candidate['title_location_hint_km']=round(dist(*CITIES[city],*title_coords),1) if local_title else None
+  candidate['location_reason']=('Ort i rubriken – ej verifierad arbetsort' if local_title
+      else 'Ingen bekräftad arbetsort eller lokal rubrikort – manuell platsgranskning')
+  candidate['location_note']='Detta är ett granskningsförslag, INTE ett verifierat lokalt jobb.'
+  candidate['review_hint_priority']=0 if local_title else 1
+  key=_normalize_key(candidate)
+  if key not in title_location_review:
+   title_location_review[key]=candidate
+   review_stats['review_candidates']+=1
  def workplace_distance_state(ad):
   place=named_workplace(ad)
   if not place:return 'missing',''
@@ -1081,7 +1106,7 @@ def _jobs_impl():
    if radius:collect_unknown(ad)
    _add_candidate(ad,found,city,radius,full_cv=full_cv,diagnostics=diagnostics)
  def summary():
-  return {'unknown_review_counts':dict(unknown_stats),'rubrikort_granskning':len(title_location_review),'platskomplettering':dict(location_enrichment_stats,**{k:diagnostics.get(k,0) for k in ('location_enrichment_attempted','location_enrichment_resolved','location_enrichment_outside','location_enrichment_mismatch')}),'granskade_unika_annonser':len(diagnostics['seen_ids']),
+  return {'unknown_review_counts':dict(unknown_stats),'rubrikort_granskning':len(title_location_review),'manuell_platsgranskning':dict(review_stats),'platskomplettering':dict(location_enrichment_stats,**{k:diagnostics.get(k,0) for k in ('location_enrichment_attempted','location_enrichment_resolved','location_enrichment_outside','location_enrichment_mismatch')}),'granskade_unika_annonser':len(diagnostics['seen_ids']),
           'uteslutna_per_orsak':{k:len(v) for k,v in diagnostics['rejected'].items()},
           'korkortskrav_vid_inlasning':diagnostics['missing_license'],
           'kvalificerade_unika':len(found),
@@ -1210,7 +1235,7 @@ def _jobs_impl():
  # Title-only hints are a separate manual-review class, not confirmed local jobs.
  # Prefer them in the currently empty unknown-location section, max five total.
  title_review_ranked=sorted((v for k,v in title_location_review.items() if k not in found),
-                            key=lambda j:(j['priority'],-j['match_score'],j['title_location_hint_km'],str(j['id'])))
+                            key=lambda j:(j['review_hint_priority'],j['priority'],-j['match_score'],str(j['id'])))
  unknown_ranked=(title_review_ranked+sorted((v for k,v in unknown_pool.items()
                    if k not in title_location_review),key=lambda j:(j['priority'],-j['match_score'],str(j['id']))))[:5]
  diagnostics['title_location_review_count']=len(title_location_review)
