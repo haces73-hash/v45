@@ -15,6 +15,56 @@ BUILD_TERMS=['anläggningsarbetare','markarbetare','byggarbetare','byggmedhjälp
              'träarbetare bygg','byggnadsträarbetare','vägarbetare']
 BUILD_LOCAL_QUERIES=['betongarbetare Halmstad','betongarbete Halmstad','byggarbetare Halmstad','bygg och anläggning Halmstad','anläggningsarbetare Halmstad','markarbetare Halmstad','byggmedhjälpare Halmstad','grovarbetare Halmstad','armerare Halmstad','betongarbetare Laholm','betongarbetare Falkenberg']
 BUILD_REFERENCE_ID='31451515'
+# Reuse verified original responses across searches; process new IDs next time.
+_original_location_cache={}
+_original_location_lock=threading.Lock()
+_ORIGINAL_LOCATION_TTL=1800
+def _original_location_cached(ident):
+ with _original_location_lock:
+  entry=_original_location_cache.get(str(ident))
+  return bool(entry and time.monotonic()-entry[0]<_ORIGINAL_LOCATION_TTL)
+
+def _original_location_detail(ident):
+ import copy
+ ident=str(ident)
+ with _original_location_lock:
+  entry=_original_location_cache.get(ident)
+  if entry and time.monotonic()-entry[0]<_ORIGINAL_LOCATION_TTL:
+   return copy.deepcopy(entry[1])
+ response=requests.get('https://jobsearch.api.jobtechdev.se/ad/'+ident,timeout=4,
+   headers={'Accept':'application/json','User-Agent':'Jobb4kevin/114'})
+ response.raise_for_status()
+ detail=response.json()
+ if not isinstance(detail,dict) or str(detail.get('id'))!=ident:
+  raise ValueError('Original-ID stämmer inte')
+ with _original_location_lock:
+  if len(_original_location_cache)>=512:
+   oldest=min(_original_location_cache,key=lambda k:_original_location_cache[k][0])
+   _original_location_cache.pop(oldest,None)
+  _original_location_cache[ident]=(time.monotonic(),copy.deepcopy(detail))
+ return detail
+
+def _regional_workplace_review(raw,parsed,city,full_cv=False,only_fulltime=True):
+ """A matching county is a review lead, never evidence of a local workplace."""
+ if not parsed or parsed.get('license_status')=='required':return None
+ if parsed.get('lat') is not None or _place_coords(parsed.get('city')):return None
+ if any(o.get('lat') is not None or _place_coords(o.get('city')) for o in parsed.get('location_options',[])):return None
+ expected={'Halmstad':'halland','Falkenberg':'halland','Varberg':'halland',
+           'Göteborg':'västra götaland','Helsingborg':'skåne'}.get(city)
+ if not expected:return None
+ addresses=[raw.get('workplace_address'),*(_as_list(raw.get('workplace_addresses')))]
+ regions=[str(a.get('region') or '').casefold().replace(' län','').strip()
+          for a in addresses if isinstance(a,dict)]
+ if not any(value in (expected,expected+'s') for value in regions):return None
+ if only_fulltime and parsed.get('employment_extent')=='part_time':return None
+ candidate=score_job(dict(parsed),full_cv=full_cv)
+ if not candidate:return None
+ candidate.update(regional_only=True,km=None,workplace_verified=False,
+   location_reason='Endast region angiven – exakt arbetsort behöver kontrolleras',
+   location_note='Region: '+expected.title()+'. Avstånd till vald ort kan inte bekräftas.',
+   review_bucket='needs_review')
+ return candidate
+
 def _construction_title(value):
  return bool(re.search(r'(?i)(?:bygg|anläggning|betong|markarbet|grovarbet|armerar|rivning)',str(value or '')))
 def search_terms(full_cv=False):
@@ -992,6 +1042,7 @@ def _jobs_impl():
  radius=radius if radius in (0,10,30,50,100) else 30
  from collections import defaultdict
  found={};unknown_places={};unknown_stats=defaultdict(int);errors=[];sources_ok=set();external_candidates={};location_enrichment_candidates={};location_enrichment_stats=defaultdict(int);title_location_review={};review_stats=defaultdict(int)
+ regional_reviews={}
  build_diag={'found':set(),'qualified':set(),'possible':set(),'rejected':set(),'reference_seen':False,'reference_stage':'Inte hittad i API-sökresultat','reference_raw_reason':'','reference_city':'','reference_license_trace':{},'building_ads':{},'license_detail_checked':set(),'license_detail_overrides':0,'license_detail_failures':0}
  diagnostics={'license_conflicts':0,'license_block_rows':[],'license_evidence':defaultdict(int),'enrichment_by_category':defaultdict(lambda:{'attempted':0,'completed':0,'license_rejected':0}),'fulltime_excluded':set(),'fulltime_unknown':set(),'source_id_attempted':set(),'source_id_missing':0,'source_id_completed':0,'source_id_failed':0,'source_id_mismatch':0,'source_id_license_rejected':0,'location_samples':defaultdict(dict),'seen_ids':set(),'rejected':defaultdict(set),'missing_license':0,'source_seen':defaultdict(set),'unknown_by_source':defaultdict(set),'detail_attempt_ids':set(),'detail_resolved_ids':set(),'detail_failed_ids':set(),'unknown_reasons':defaultdict(set)}
  def record_sample(raw,parsed,source):
@@ -1087,6 +1138,8 @@ def _jobs_impl():
    parsed['_location_diagnosis']=_location_diagnosis(raw,parsed)
   if parsed:
    parsed['_original_ids']=_linked_jobsearch_ids(raw)
+   regional=_regional_workplace_review(raw,parsed,city,full_cv,only_fulltime) if region=='radius' else None
+   if regional:regional_reviews[_normalize_key(regional)]=regional
    collect_title_hint(parsed)
   # First apply location/CV/senior filters. Enrich only after ALL searches,
   # globally ordered by actual CV priority (not API return order).
@@ -1127,17 +1180,18 @@ def _jobs_impl():
                   for name in local_names)
    return (-int(bool(local_hint)),candidate.get('priority',99),
            -candidate.get('match_score',0),str(ident))
-  selected=sorted(location_enrichment_candidates.items(),key=priority)[:12]
+  ordered=sorted(location_enrichment_candidates.items(),key=priority)
+  cached=[entry for entry in ordered if _original_location_cached(entry[0])]
+  fresh=[entry for entry in ordered if not _original_location_cached(entry[0])]
+  selected=cached+fresh[:12]
+  location_enrichment_stats['cached_originals_reused']=len(cached)
   location_enrichment_stats['budget_skipped']=max(0,len(location_enrichment_candidates)-len(selected))
   location_enrichment_stats['selected_with_local_hint']=sum(
    any(name in (str(ad.get('title') or '')+' '+str(ad.get('description') or '')[:1200]).casefold()
        for name in local_names) for _,(_,ad) in selected)
   def fetch_detail(entry):
    ident,_=entry
-   response=requests.get('https://jobsearch.api.jobtechdev.se/ad/'+ident,timeout=4,
-     headers={'Accept':'application/json','User-Agent':'Jobb4kevin/96'})
-   response.raise_for_status()
-   return response.json()
+   return _original_location_detail(ident)
   with ThreadPoolExecutor(max_workers=4) as pool:
    futures={pool.submit(fetch_detail,entry):entry for entry in selected}
    for future in as_completed(futures):
@@ -1164,6 +1218,8 @@ def _jobs_impl():
      else:
       coords=_place_coords(verified.get('city'))
      if not coords:
+      regional=_regional_workplace_review(detail,verified,city,full_cv,only_fulltime)
+      if regional:regional_reviews[_normalize_key(regional)]=regional
       location_enrichment_stats['still_missing_location']+=1
       continue
      location_enrichment_stats['workplace_found_total']+=1
@@ -1493,10 +1549,7 @@ def _jobs_impl():
  review_started=time.monotonic()
  def review_detail(entry):
   ident,candidate=entry
-  response=requests.get('https://jobsearch.api.jobtechdev.se/ad/'+ident,
-                        timeout=4,headers={'Accept':'application/json','User-Agent':'Jobb4kevin/101'})
-  response.raise_for_status()
-  return response.json()
+  return _original_location_detail(ident)
  def handle_review_result(entry,detail):
   ident,candidate=entry
   if not isinstance(detail,dict) or str(detail.get('id'))!=ident:
@@ -1541,21 +1594,26 @@ def _jobs_impl():
    verified['_origin']=_diagnostic_source('jobsearch')
    add_parsed(verified)
    return
+  regional=_regional_workplace_review(detail,verified,city,full_cv,only_fulltime)
+  if regional:regional_reviews[_normalize_key(regional)]=regional
   review_stats['original_still_unknown']+=1
   candidate['location_reason']='Originalannons kontrollerad, men arbetsort kunde inte bekräftas'
   candidate['detail_check_status']='Original kontrollerat – plats saknas'
   review_results[ident]=candidate
  # Four bounded waves of five parallel requests, with an overall time guard.
  # Each wave can stop once five genuinely unresolved review candidates exist.
+ cached_review=[entry for entry in review_entries if _original_location_cached(entry[0])]
+ fresh_review=[entry for entry in review_entries if not _original_location_cached(entry[0])]
+ review_work=cached_review+fresh_review[:60]
  with ThreadPoolExecutor(max_workers=5) as pool:
-  for offset in range(0,min(len(review_entries),60),5):
+  for offset in range(0,len(review_work),5):
    if len(review_results)>=5:
     review_stats['stopped_enough_candidates']=1
     break
    if time.monotonic()-review_started>=12:
     review_stats['stopped_time_budget']=1
     break
-   batch=review_entries[offset:offset+5]
+   batch=review_work[offset:offset+5]
    futures={pool.submit(review_detail,entry):entry for entry in batch}
    for future in as_completed(futures):
     entry=futures[future]
@@ -1585,6 +1643,8 @@ def _jobs_impl():
   if bucket=='qualified':result.append(item)
   elif bucket=='needs_review':needs_review.append(item)
  result=result[:80]
+ known_keys={_normalize_key(j) for j in result+needs_review}
+ needs_review.extend(j for key,j in regional_reviews.items() if key not in known_keys)
  search_seconds=round(time.monotonic()-started_at,1)
  return jsonify({'jobs':_attach_requirement_checks(result),'needs_review':_attach_requirement_checks(needs_review[:80]),'unknown_location':_attach_requirement_checks(unknown_ranked),'search_seconds':search_seconds,'fulltime_only':only_fulltime,'match_counts':match_counts(found),'diagnostics':summary(),'source':', '.join(sorted(sources_ok)) or 'Inga källor nåddes','sources':sorted(sources_ok),'city':city,'radius':radius,'errors':errors[:8], 'note':'Körkortsfilter: obligatoriskt bilkörkort utesluts; meriterande truckkort kan tillåtas. Externa annonser kan ha förkortad text och måste dubbelkollas. JobSearch och JobAd Links används. Annonser utan GPS kan tas med när kommunen är känd; avståndet är då ungefärligt. Externa annonser kan ha förkortade beskrivningar. Kontrollera körkort och andra krav i originalannonsen.'})
 
