@@ -953,7 +953,7 @@ def _jobs_impl():
  radius=radius if radius in (0,10,30,50,100) else 30
  from collections import defaultdict
  found={};unknown_places={};unknown_stats=defaultdict(int);errors=[];sources_ok=set();external_candidates={};location_enrichment_candidates={};location_enrichment_stats=defaultdict(int);title_location_review={};review_stats=defaultdict(int)
- build_diag={'found':set(),'qualified':set(),'possible':set(),'rejected':set(),'reference_seen':False,'reference_stage':'Inte hittad i API-sökresultat','reference_raw_reason':'','reference_city':'','reference_license_trace':{},'building_ads':{}}
+ build_diag={'found':set(),'qualified':set(),'possible':set(),'rejected':set(),'reference_seen':False,'reference_stage':'Inte hittad i API-sökresultat','reference_raw_reason':'','reference_city':'','reference_license_trace':{},'building_ads':{},'license_detail_checked':set(),'license_detail_overrides':0,'license_detail_failures':0}
  diagnostics={'license_conflicts':0,'license_block_rows':[],'license_evidence':defaultdict(int),'enrichment_by_category':defaultdict(lambda:{'attempted':0,'completed':0,'license_rejected':0}),'fulltime_excluded':set(),'fulltime_unknown':set(),'source_id_attempted':set(),'source_id_missing':0,'source_id_completed':0,'source_id_failed':0,'source_id_mismatch':0,'source_id_license_rejected':0,'location_samples':defaultdict(dict),'seen_ids':set(),'rejected':defaultdict(set),'missing_license':0,'source_seen':defaultdict(set),'unknown_by_source':defaultdict(set),'detail_attempt_ids':set(),'detail_resolved_ids':set(),'detail_failed_ids':set(),'unknown_reasons':defaultdict(set)}
  def record_sample(raw,parsed,source):
   if parsed and (parsed.get('lat') is not None or _place_coords(parsed.get('city'))):return
@@ -986,6 +986,36 @@ def _jobs_impl():
     build_diag['reference_license_trace']={'api':structured,'api_field':field or 'ej angivet','text_meriterande':_text_license_override(evidence)=='optional','text_obligatoriskt':_text_license_override(evidence)=='mandatory','text_innehaller_korkort':bool(ROAD_LICENSE.search(evidence)),'text_tecken':len(evidence),'beslut':license_state,'beslutsgrund':license_detail}
     if license_state=='required':build_diag['reference_raw_reason']='Obligatoriskt körkort ('+str(license_detail)[:100]+')'
     elif license_state=='optional' and 'API-UPPGIFT AVVIKER' in license_detail:build_diag['reference_raw_reason']='Körkort meriterande i text; API avviker – passerar körkortsfiltret'
+  # When the search result flags mandatory licence, inspect the canonical
+  # original before rejecting a construction role. Never fabricate a candidate.
+  if isinstance(raw,dict) and _construction_title(raw.get('headline') or raw.get('title')):
+   ident=str(raw.get('id') or '')
+   raw_desc=raw.get('description') or {}
+   raw_text=_license_description_text(raw,(raw_desc.get('text') or '') if isinstance(raw_desc,dict) else str(raw_desc))
+   state,_,_,_=_license_decision(raw,raw.get('headline') or raw.get('title') or '',raw_text)
+   if state=='required' and ident.isdigit() and ident not in build_diag['license_detail_checked'] and len(build_diag['license_detail_checked'])<10:
+    build_diag['license_detail_checked'].add(ident)
+    try:
+     response=requests.get('https://jobsearch.api.jobtechdev.se/ad/'+ident,timeout=2.5,headers={'Accept':'application/json'})
+     if response.ok:
+      detail=response.json()
+      if str(detail.get('id'))==ident:
+       detail_text=_license_description_text(detail)
+       detail_state,_,_,_=_license_decision(detail,detail.get('headline') or detail.get('title') or '',detail_text)
+       if detail_state=='optional' and _text_license_override(detail_text)=='optional':
+        # Preserve original search hit's other fields; only complete description.
+        raw=dict(raw)
+        raw['description']=detail.get('description') or raw.get('description')
+        build_diag['license_detail_overrides']+=1
+       if ident==BUILD_REFERENCE_ID:
+        build_diag['reference_license_trace']['original_checked']=True
+        build_diag['reference_license_trace']['original_text_meriterande']=_text_license_override(detail_text)=='optional'
+        build_diag['reference_license_trace']['original_text_obligatoriskt']=_text_license_override(detail_text)=='mandatory'
+        build_diag['reference_license_trace']['original_text_tecken']=len(detail_text)
+        build_diag['reference_license_trace']['original_beslut']=detail_state
+     else:build_diag['license_detail_failures']+=1
+    except (requests.RequestException,ValueError):
+     build_diag['license_detail_failures']+=1
   parsed=parse_job(raw,'Platsbanken / JobSearch')
   record_sample(raw,parsed,'Platsbanken / JobSearch')
   if parsed:
