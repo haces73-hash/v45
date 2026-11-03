@@ -407,7 +407,7 @@ def parse_job(ad,source):
  return {'id':str(ad.get('id') or url),'title':title,'company':employer.get('name') or 'Arbetsgivare ej angiven','city':actual_city, 'description':text[:8500], 'published':ad.get('publication_date') or '', 'deadline':_deadline(ad), 'url':url, 'lat':lat,'lon':lon,'location_options':options,'source':source,'license':lic_text,'license_status':lic_state,'verification_status':_verification_state(text,lic_state),'application':application_route(ad,url),'employment_extent':employment_extent(ad),'detail_check_status':'Fullständig annons från JobSearch' if len(text)>=45 else 'Väntar på detaljkontroll'}
 # CV-baserade yrkesområden: byggutbildning, snickeri/produktion och svetsutbildning.
 CV_GROUPS={
- 'Bygg och anläggning':{'anläggningsarbetare':48,'markarbetare':47,'byggmedhjälpare':48,'betongarbetare':44,'grovarbetare':40,'byggarbetare':43,'byggnadsträarbetare':43,'träarbetare':42,'snickare':40,'byggmontör':38,'byggnadsarbetare':44,'anläggningsmedarbetare':44,'vägarbetare':38,'hjälparbetare':35,'bygglärling':42,'bygglärling':42,'rivningsarbetare':38,'byggservice':39,'lärling':32},
+ 'Bygg och anläggning':{'anläggningsarbetare':48,'markarbetare':47,'byggmedhjälpare':48,'betongarbetare':44,'betongare':44,'grovarbetare':40,'byggarbetare':43,'byggnadsträarbetare':43,'träarbetare':42,'snickare':40,'byggmontör':38,'byggnadsarbetare':44,'anläggningsmedarbetare':44,'vägarbetare':38,'hjälparbetare':35,'bygglärling':42,'bygglärling':42,'rivningsarbetare':38,'byggservice':39,'lärling':32},
  'Snickeri och träproduktion':{'snickeri':45,'snickare':43,'träindustri':43,'träbearbetning':43,'träproduktion':43,'möbelsnickare':33,'sågverk':34},
  'Industri och produktion':{'produktionsmedarbetare':42,'industriarbetare':41,'produktionsarbetare':42,'verkstadsmedarbetare':42,'montör':40,'montagearbetare':41,'maskinoperatör':32,'produktionsoperatör':32},
  'Svets och metallarbete':{'metallarbetare':36,'svetsare':35,'svetsoperatör':35,'svetsmontör':35,'plåtbearbetare':34,'metallbearbetare':34}}
@@ -429,7 +429,17 @@ def _possible_build_match(j):
  experience=bool(re.search(r'(?i)(?:erfaren|självgående|armering|betongarbete)',desc))
  return flexible or experience
 
+def _away_assignment(j):
+ """Only explicit work away from home; a travel allowance alone is not enough."""
+ title=str(j.get('title') or '')
+ if re.search(r'(?i)\btraktamenteuppdrag\b',title):return True
+ for clause in re.split(r'[\n.!?]+',str(j.get('description') or '')):
+  if re.search(r'(?i)\b(?:inte|ej|inget|inga|utan)\b.{0,45}\b(?:annan ort|traktamenteuppdrag)\b',clause):continue
+  if re.search(r'(?i)\b(?:arbete|arbeta|uppdrag|projekt|tjänst)\w*\b.{0,65}\b(?:på annan ort|på andra orter)\b',clause):return True
+ return False
+
 def reject_reason(j,full_cv=False):
+ if _away_assignment(j):return 'Arbete på annan ort / traktamenteuppdrag'
  if is_blocked_employer(j):return 'Veterankraft'
  title=(j.get('title') or '').casefold()
  desc=(j.get('description') or '')[:8500]
@@ -566,7 +576,7 @@ def parse_external(ad):
  title=_first_str(ad.get('headline'),ad.get('title'),ad.get('occupation_label'))
  description=ad.get('description')
  if isinstance(description,dict):description=_first_str(description.get('text'),description.get('text_formatted'))
- text=clean(description if isinstance(description,str) else '')
+ text=clean(_first_str(description,ad.get('brief')))
  url=_first_str(link.get('url'),link.get('source_url'),ad.get('url'),ad.get('webpage_url'))
  if not url.startswith('https://') or not title:return None
  lic_state,lic_text=license_classification(ad,title,text)
@@ -682,15 +692,16 @@ def _enrich_jobsearch_location(raw,parsed,diagnostics):
 def _norm_match(value):
  return re.sub(r'[^a-zåäö0-9]+',' ',str(value or '').casefold()).strip()
 
-def _linked_jobsearch_id(raw):
+def _linked_jobsearch_ids(raw):
  """Only a source-provided Platsbanken ID or an explicit AF ad URL is trusted.
  JobAd Links' own ID is NOT assumed to be a JobSearch ID.
  """
- if not isinstance(raw,dict):return ''
+ if not isinstance(raw,dict):return []
+ ids=[]
  for key in ('jobsearch_id','platsbanken_id','arbetsformedlingen_id'):
   value=raw.get(key)
   if isinstance(value,(str,int)) and re.fullmatch(r'[0-9]{4,24}',str(value)):
-   return str(value)
+   ids.append(str(value))
  links=_as_list(raw.get('source_links'))
  urls=[_as_dict(x).get('url','') for x in links]
  urls.extend([raw.get('url',''),raw.get('webpage_url','')])
@@ -701,8 +712,12 @@ def _linked_jobsearch_id(raw):
   host=(parsed.hostname or '').lower()
   if host not in ('arbetsformedlingen.se','www.arbetsformedlingen.se','platsbanken.arbetsformedlingen.se'):continue
   match=re.search(r'/(?:annonser|annons|ad)/([0-9]{4,24})(?:/|$)',parsed.path)
-  if match:return match.group(1)
- return ''
+  if match:ids.append(match.group(1))
+ return list(dict.fromkeys(ids))
+
+def _linked_jobsearch_id(raw):
+ ids=_linked_jobsearch_ids(raw)
+ return ids[0] if ids else ''
 
 def _record_license_evidence(diagnostics,ad,title,text):
  status,_,kind,path=_license_decision(ad,title,text)
@@ -1063,7 +1078,9 @@ def _jobs_impl():
   if parsed:
    parsed['_origin']=_diagnostic_source('external')
    parsed['_location_diagnosis']=_location_diagnosis(raw,parsed)
-  if parsed:collect_title_hint(parsed)
+  if parsed:
+   parsed['_original_ids']=_linked_jobsearch_ids(raw)
+   collect_title_hint(parsed)
   # First apply location/CV/senior filters. Enrich only after ALL searches,
   # globally ordered by actual CV priority (not API return order).
   if parsed:
@@ -1074,12 +1091,13 @@ def _jobs_impl():
    elif radius and not parsed.get('city') and parsed.get('lat') is None:
     location_enrichment_stats['missing_location_candidates']+=1
     # Source-only entries are never accepted without verified workplace data.
-    ident=_linked_jobsearch_id(raw)
-    if not ident:
+    idents=_linked_jobsearch_ids(raw)
+    if not idents:
      location_enrichment_stats['missing_trusted_id']+=1
     elif score_job(dict(parsed),full_cv=full_cv):
      location_enrichment_stats['cv_relevant_with_id']+=1
-     location_enrichment_candidates.setdefault(ident,(raw,parsed))
+     for ident in idents:
+      location_enrichment_candidates.setdefault(ident,(raw,parsed))
     else:
      location_enrichment_stats['no_cv_match']+=1
  def enrich_missing_workplaces():
@@ -1100,7 +1118,7 @@ def _jobs_impl():
    description=str(ad.get('description') or '')[:1200].casefold()
    local_hint=any(re.search(r'(?<!\\w)'+re.escape(name)+r'(?!\\w)',title+' '+description)
                   for name in local_names)
-   return (candidate.get('priority',99),-int(bool(local_hint)),
+   return (-int(bool(local_hint)),candidate.get('priority',99),
            -candidate.get('match_score',0),str(ident))
   selected=sorted(location_enrichment_candidates.items(),key=priority)[:12]
   location_enrichment_stats['budget_skipped']=max(0,len(location_enrichment_candidates)-len(selected))
@@ -1454,13 +1472,14 @@ def _jobs_impl():
  review_ids=set()
  review_entries=[]
  for candidate in review_order:
-  ident=_linked_jobsearch_id(candidate)
-  if not ident:
+  idents=candidate.get('_original_ids') or _linked_jobsearch_ids(candidate)
+  if not idents:
    review_stats['no_verified_jobsearch_id']+=1
    continue
-  if ident in review_ids:continue
-  review_ids.add(ident)
-  review_entries.append((ident,candidate))
+  for ident in idents:
+   if ident in review_ids:continue
+   review_ids.add(ident)
+   review_entries.append((ident,candidate))
  review_stats['original_lookup_budget']=60
  review_stats['original_available_with_id']=len(review_entries)
  review_results={}
@@ -1512,6 +1531,8 @@ def _jobs_impl():
    return
   if state=='inside':
    review_stats['original_within_radius']+=1
+   verified['_origin']=_diagnostic_source('jobsearch')
+   add_parsed(verified)
    return
   review_stats['original_still_unknown']+=1
   candidate['location_reason']='Originalannons kontrollerad, men arbetsort kunde inte bekräftas'
@@ -1547,6 +1568,16 @@ def _jobs_impl():
  diagnostics['title_location_review_count']=len(title_location_review)
  diagnostics['unknown_review_counts']=dict(unknown_stats)
  diagnostics['unknown_review_counts']['visas']=len(unknown_ranked)
+ # Rebuild eligibility after original checks discover verified local workplaces.
+ ranked=sorted(found.values(),key=lambda j:(j['priority'],-j['match_score'],j['km'] if j['km'] is not None else 9999,j['id']))
+ result=[];needs_review=[]
+ for item in ranked:
+  if _fulltime_bucket(item,only_fulltime)=='exclude':continue
+  bucket=_classify_listing(item)
+  item['review_bucket']=bucket
+  if bucket=='qualified':result.append(item)
+  elif bucket=='needs_review':needs_review.append(item)
+ result=result[:80]
  search_seconds=round(time.monotonic()-started_at,1)
  return jsonify({'jobs':_attach_requirement_checks(result),'needs_review':_attach_requirement_checks(needs_review[:80]),'unknown_location':_attach_requirement_checks(unknown_ranked),'search_seconds':search_seconds,'fulltime_only':only_fulltime,'match_counts':match_counts(found),'diagnostics':summary(),'source':', '.join(sorted(sources_ok)) or 'Inga källor nåddes','sources':sorted(sources_ok),'city':city,'radius':radius,'errors':errors[:8], 'note':'Körkortsfilter: obligatoriskt bilkörkort utesluts; meriterande truckkort kan tillåtas. Externa annonser kan ha förkortad text och måste dubbelkollas. JobSearch och JobAd Links används. Annonser utan GPS kan tas med när kommunen är känd; avståndet är då ungefärligt. Externa annonser kan ha förkortade beskrivningar. Kontrollera körkort och andra krav i originalannonsen.'})
 
