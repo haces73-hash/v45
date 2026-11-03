@@ -929,7 +929,7 @@ def _jobs_impl():
  radius=radius if radius in (0,10,30,50,100) else 30
  from collections import defaultdict
  found={};unknown_places={};unknown_stats=defaultdict(int);errors=[];sources_ok=set();external_candidates={};location_enrichment_candidates={};location_enrichment_stats=defaultdict(int);title_location_review={};review_stats=defaultdict(int)
- build_diag={'found':set(),'qualified':set(),'possible':set(),'rejected':set(),'reference_seen':False,'reference_stage':'Inte hittad i API-sökresultat'}
+ build_diag={'found':set(),'qualified':set(),'possible':set(),'rejected':set(),'reference_seen':False,'reference_stage':'Inte hittad i API-sökresultat','reference_raw_reason':'','reference_city':''}
  diagnostics={'license_conflicts':0,'license_block_rows':[],'license_evidence':defaultdict(int),'enrichment_by_category':defaultdict(lambda:{'attempted':0,'completed':0,'license_rejected':0}),'fulltime_excluded':set(),'fulltime_unknown':set(),'source_id_attempted':set(),'source_id_missing':0,'source_id_completed':0,'source_id_failed':0,'source_id_mismatch':0,'source_id_license_rejected':0,'location_samples':defaultdict(dict),'seen_ids':set(),'rejected':defaultdict(set),'missing_license':0,'source_seen':defaultdict(set),'unknown_by_source':defaultdict(set),'detail_attempt_ids':set(),'detail_resolved_ids':set(),'detail_failed_ids':set(),'unknown_reasons':defaultdict(set)}
  def record_sample(raw,parsed,source):
   if parsed and (parsed.get('lat') is not None or _place_coords(parsed.get('city'))):return
@@ -946,12 +946,27 @@ def _jobs_impl():
    if ident==BUILD_REFERENCE_ID:
     build_diag['reference_seen']=True
     build_diag['reference_stage']='Hittad i JobSearch'
+  if isinstance(raw,dict) and str(raw.get('id'))==BUILD_REFERENCE_ID:
+   title=raw.get('headline') or raw.get('title') or ''
+   desc=raw.get('description') or {}
+   desc=clean((desc.get('text') or desc.get('text_formatted') or '') if isinstance(desc,dict) else str(desc))
+   if _remote_job_evidence(raw):build_diag['reference_raw_reason']='Distansarbete'
+   else:
+    license_state,license_detail=license_classification(raw,title,desc)
+    if license_state=='required':build_diag['reference_raw_reason']='Obligatoriskt körkort ('+str(license_detail)[:100]+')'
   parsed=parse_job(raw,'Platsbanken / JobSearch')
   record_sample(raw,parsed,'Platsbanken / JobSearch')
   if parsed:
    parsed['_origin']=_diagnostic_source('jobsearch')
    parsed['_location_diagnosis']=_location_diagnosis(raw,parsed)
   add_parsed(_enrich_jobsearch_location(raw,parsed,diagnostics),region_name)
+  if isinstance(raw,dict) and str(raw.get('id'))==BUILD_REFERENCE_ID:
+   if parsed is None:build_diag['reference_stage']=build_diag['reference_raw_reason'] or 'Avvisad vid inläsning'
+   elif BUILD_REFERENCE_ID in {str(j.get('id')) for j in found.values()}:build_diag['reference_stage']='Godkänd byggkandidat'
+   else:
+    reasons=[name for name,ids in diagnostics['rejected'].items() if BUILD_REFERENCE_ID in ids]
+    build_diag['reference_stage']='Avvisad: '+(', '.join(reasons) if reasons else 'Ej godkänd efter plats- och CV-kontroll')
+    build_diag['reference_city']=parsed.get('city') or 'Saknas'
  def add_external(raw):
   if _remote_job_evidence(raw):
    review_stats['remote_excluded_external']+=1
@@ -1209,8 +1224,11 @@ def _jobs_impl():
     (build_diag['possible'] if job.get('building_possible_match') else build_diag['qualified']).add(ident)
     if ident==BUILD_REFERENCE_ID:build_diag['reference_stage']='Godkänd byggkandidat'
   build_report={k:(len(v) if isinstance(v,set) else v) for k,v in build_diag.items()}
+  build_report['reasons']={name:len(ids & build_diag['found']) for name,ids in diagnostics['rejected'].items() if ids & build_diag['found']}
   if build_diag['reference_seen'] and BUILD_REFERENCE_ID not in build_diag['qualified'] and BUILD_REFERENCE_ID not in build_diag['possible']:
-   build_report['reference_stage']='Hittad men inte kvalificerad: kontrollera plats, körkort och erfarenhet'
+   reasons=[name for name,ids in diagnostics['rejected'].items() if BUILD_REFERENCE_ID in ids]
+   if build_diag['reference_raw_reason']:build_report['reference_stage']='Avvisad: '+build_diag['reference_raw_reason']
+   elif reasons:build_report['reference_stage']='Avvisad: '+', '.join(reasons)
   return {'byggsokning_v105':build_report,'unknown_review_counts':dict(unknown_stats),'rubrikort_granskning':len(title_location_review),'manuell_platsgranskning':dict(review_stats),'platskomplettering':dict(location_enrichment_stats,**{k:diagnostics.get(k,0) for k in ('location_enrichment_attempted','location_enrichment_resolved','location_enrichment_outside','location_enrichment_mismatch')}),'granskade_unika_annonser':len(diagnostics['seen_ids']),
           'uteslutna_per_orsak':{k:len(v) for k,v in diagnostics['rejected'].items()},
           'korkortskrav_vid_inlasning':diagnostics['missing_license'],
