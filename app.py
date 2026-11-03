@@ -1029,7 +1029,109 @@ def jobs():
  finally:
   _search_gate.release()
 
+# Municipality search: no kilometre or approximate-distance eligibility.
+SEARCH_MUNICIPALITIES={'Halmstad':'1380','Falkenberg':'1382','Varberg':'1383',
+ 'Kungsbacka':'1384','Laholm':'1381','Hylte':'1315','Helsingborg':'1283','Göteborg':'1480'}
+def _municipality_addresses(raw,city):
+ code=SEARCH_MUNICIPALITIES[city]
+ entries=_as_list(raw.get('workplace_addresses'))
+ if isinstance(raw.get('workplace_address'),dict):entries=entries+[raw['workplace_address']]
+ matches=[]
+ for address in entries:
+  if not isinstance(address,dict):continue
+  given=str(address.get('municipality_code') or '').zfill(4)
+  name=str(address.get('municipality') or '').casefold().removesuffix(' kommun').strip()
+  if given==code or (given in ('','0000') and name in (city.casefold(),city.casefold()+'s')):
+   matches.append(address)
+ return matches
+
+def _municipality_jobs_impl():
+ from concurrent.futures import ThreadPoolExecutor,as_completed
+ started=time.monotonic()
+ city=request.args.get('city','Halmstad')
+ if city not in SEARCH_MUNICIPALITIES:city='Halmstad'
+ full_cv=request.args.get('profile','priority')=='full'
+ only_fulltime=request.args.get('fulltime','1')!='0'
+ found={};regional={};details={};seen=set();errors=[];counts=defaultdict(int);sources=set()
+ # Search occupation groups in the selected municipality rather than nationwide terms.
+ # Each concrete occupational term is queried independently: JobSearch uses AND for words.
+ queries=['byggarbetare','anläggningsarbetare','markarbetare','grovarbetare','rivningsarbetare','betongarbetare','snickare','produktionsmedarbetare','montör','svetsare']+(FULL_CV_EXTRA_TERMS if full_cv else [])
+ tasks=[('jobsearch',term) for term in queries]
+ tasks += [('links',term) for term in ('bygg','snickare','montör','svetsare')]
+ def fetch(task):
+  kind,term=task
+  if kind=='jobsearch':
+   url='https://jobsearch.api.jobtechdev.se/search'
+   params={'q':term,'municipality':SEARCH_MUNICIPALITIES[city],'limit':100}
+  else:
+   url='https://links.api.jobtechdev.se/joblinks'
+   params={'q':term+' '+city,'limit':40,'sort':'relevance'}
+  response=requests.get(url,params=params,timeout=5,headers={'Accept':'application/json'})
+  response.raise_for_status()
+  data=response.json()
+  return kind,data.get('hits',[]) if isinstance(data,dict) else []
+ def accept(raw,kind):
+  ident=(kind,str(raw.get('id') or ''))
+  if ident in seen:return
+  seen.add(ident);counts['granskade']+=1
+  matched=_municipality_addresses(raw,city)
+  if not matched:
+   parsed=parse_external(raw) if kind=='links' else parse_job(raw,'Platsbanken / JobSearch')
+   review=_regional_workplace_review(raw,parsed,city,full_cv,only_fulltime)
+   if review:regional[_normalize_key(review)]=review
+   # Only missing workplace data needs an original lookup. Explicit other municipalities do not.
+   addresses=_as_list(raw.get('workplace_addresses'))+[raw.get('workplace_address')]
+   has_other=any(isinstance(a,dict) and (a.get('municipality') or a.get('municipality_code')) for a in addresses)
+   if has_other:counts['annan_kommun']+=1;return
+   counts['okand_kommun']+=1
+   if kind=='links' and parsed and score_job(dict(parsed),full_cv=full_cv):
+    for original_id in _linked_jobsearch_ids(raw):details.setdefault(original_id,parsed)
+   return
+  selected=dict(raw,workplace_addresses=matched,workplace_address=matched[0])
+  job=parse_external(selected) if kind=='links' else parse_job(selected,'Platsbanken / JobSearch')
+  if not job:counts['kravfilter']+=1;return
+  if only_fulltime and job.get('employment_extent')=='part_time':counts['deltid']+=1;return
+  job.update(city=city,km=None,municipality_verified=True)
+  scored=score_job(job,full_cv=full_cv)
+  if not scored:counts['kravfilter']+=1;return
+  key=_normalize_key(scored)
+  if key not in found or _candidate_data_rank(scored)>_candidate_data_rank(found[key]):found[key]=scored
+  if kind=='links' and not _has_original_details(scored):
+   for original_id in _linked_jobsearch_ids(raw):details.setdefault(original_id,scored)
+ with ThreadPoolExecutor(max_workers=6) as pool:
+  for future in as_completed({pool.submit(fetch,t):t for t in tasks}):
+   try:
+    kind,hits=future.result();sources.add(_diagnostic_source(kind))
+    for raw in hits:
+     if isinstance(raw,dict):accept(raw,kind)
+   except (requests.RequestException,ValueError,TypeError,KeyError) as error:errors.append(str(error)[:120])
+ # Finish local summaries from originals; known municipality is never inferred from a title.
+ selected=sorted(details.items(),key=lambda x:(not _original_location_cached(x[0]),x[1].get('priority',99)))[:12]
+ with ThreadPoolExecutor(max_workers=6) as pool:
+  futures={pool.submit(_original_location_detail,ident):(ident,lead) for ident,lead in selected}
+  for future in as_completed(futures):
+   ident,lead=futures[future]
+   if ('jobsearch',ident) in seen:continue
+   try:
+    raw=future.result();counts['originalkontroller']+=1
+    if _norm_match(raw.get('headline'))!=_norm_match(lead.get('title')) or _norm_match((raw.get('employer') or {}).get('name'))!=_norm_match(lead.get('company')):
+     counts['fel_original']+=1;continue
+    # Remove the incomplete duplicate before evaluating full original requirements.
+    found.pop(_normalize_key(lead),None)
+    accept(raw,'jobsearch')
+   except (requests.RequestException,ValueError,TypeError,KeyError):counts['uppslagsfel']+=1
+ ranked=sorted(found.values(),key=lambda j:(j['priority'],-j['match_score'],j['id']))
+ qualified=[j for j in ranked if _classify_listing(j)=='qualified']
+ review=[j for j in ranked if _classify_listing(j)=='needs_review']
+ keys={_normalize_key(j) for j in ranked}
+ review.extend(j for key,j in regional.items() if key not in keys)
+ return jsonify(jobs=_attach_requirement_checks(qualified),needs_review=_attach_requirement_checks(review),
+  unknown_location=[],city=city,municipality=city,region='municipality',radius=0,
+  search_seconds=round(time.monotonic()-started,1),match_counts=match_counts(found),
+  municipality_summary=dict(counts),diagnostics={},sources=sorted(sources),source=', '.join(sorted(sources)),errors=errors[:8])
+
 def _jobs_impl():
+ if request.args.get('region','municipality')=='municipality':return _municipality_jobs_impl()
  import time
  started_at=time.monotonic()
  full_cv=request.args.get('profile','priority').lower()=='full'
