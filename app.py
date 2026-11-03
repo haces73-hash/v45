@@ -1032,7 +1032,21 @@ def jobs():
 # Municipality search: no kilometre or approximate-distance eligibility.
 SEARCH_MUNICIPALITIES={'Halmstad':'1380','Falkenberg':'1382','Varberg':'1383',
  'Kungsbacka':'1384','Laholm':'1381','Hylte':'1315','Helsingborg':'1283','Göteborg':'1480'}
+def _explicit_workplace_areas(raw):
+ """Read explicit workplace wording, never a recruiter's office/marketing towns."""
+ title=str(raw.get('headline') or raw.get('title') or '')
+ desc=raw.get('description') or {}
+ text=_first_str(desc.get('text'),desc.get('text_formatted')) if isinstance(desc,dict) else str(desc)
+ text=clean(text)
+ names='|'.join(re.escape(name) for name in sorted(SEARCH_MUNICIPALITIES,key=len,reverse=True))
+ labels=re.findall(r'(?i)\b(?:placeringsort|arbetsort|stationeringsort)\s*[:–-]\s*('+names+r')\b',text)
+ if labels:return {name.casefold() for name in labels}
+ match=re.search(r'(?i)\b(?:i|till)\s+('+names+r')\s*[!.? ]*$',title)
+ return {match.group(1).casefold()} if match else set()
+
 def _municipality_addresses(raw,city):
+ explicit=_explicit_workplace_areas(raw)
+ if explicit and explicit!={city.casefold()}:return []
  code=SEARCH_MUNICIPALITIES[city]
  entries=_as_list(raw.get('workplace_addresses'))
  if isinstance(raw.get('workplace_address'),dict):entries=entries+[raw['workplace_address']]
@@ -1105,7 +1119,8 @@ def _municipality_jobs_impl():
   job=parse_external(selected) if kind=='links' else parse_job(selected,'Platsbanken / JobSearch')
   if not job:counts['kravfilter']+=1;return
   if only_fulltime and job.get('employment_extent')=='part_time':counts['deltid']+=1;return
-  job.update(city=city,km=None,municipality_verified=True)
+  job.update(km=None,municipality_verified=True,search_municipality=city)
+  if not job.get('city'):job['city']=city
   scored=score_job(job,full_cv=full_cv)
   if not scored:counts['kravfilter']+=1;return
   key=_normalize_key(scored)
