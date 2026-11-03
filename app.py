@@ -76,7 +76,7 @@ def _text_license_override(text):
  """Use explicit employer wording over a conflicting structured licence flag.
  Never override when the description also explicitly requires a road licence.
  """
- clauses=re.split(r'[\\n\\r;.!?•]+',str(text or ''))
+ clauses=re.split(r'[\n\r;.!?•]+',str(text or ''))
  optional=False
  mandatory=False
  for clause in clauses:
