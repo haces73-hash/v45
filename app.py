@@ -1113,6 +1113,22 @@ def _deduplicate_recruitment_jobs(items):
 
 ADDITIONAL_CV_SEARCH_TERMS=["bygglärling","byggmedhjälpare","hjälparbetare","snickerimedarbetare","träindustriarbetare","möbelmontör","processoperatör","produktionsoperatör","verkstadsmedarbetare","assemblör","montagearbetare","produktionsmontör"]
 
+def _matching_original_for_summary(summary,originals,city):
+ """Link only one same-employer, same-area original with a long verbatim summary."""
+ employer=_norm_match((summary.get('employer') or {}).get('name'))
+ brief=_norm_match(summary.get('brief') or '')
+ title=_norm_match(summary.get('headline') or summary.get('title'))
+ if not employer or len(brief)<160 or not title:return None
+ matches={}
+ for original in originals:
+  if _norm_match((original.get('employer') or {}).get('name'))!=employer:continue
+  original_title=_norm_match(original.get('headline'))
+  if title!=original_title and not (len(title)>=8 and title in original_title):continue
+  if not _municipality_addresses(original,city):continue
+  if brief not in _norm_match(_license_description_text(original)):continue
+  matches[str(original.get('id'))]=original
+ return next(iter(matches.values())) if len(matches)==1 else None
+
 def _municipality_jobs_impl():
  from concurrent.futures import ThreadPoolExecutor,as_completed
  started=time.monotonic()
@@ -1121,7 +1137,7 @@ def _municipality_jobs_impl():
  full_cv=request.args.get('profile','priority')=='full'
  only_fulltime=request.args.get('fulltime','1')!='0'
  found={};regional={};details={};seen=set();errors=[];counts=defaultdict(int);sources=set()
- jobad_places={};original_places={}
+ jobad_places={};original_places={};full_originals={};external_summaries={}
  # Search occupation groups in the selected municipality rather than nationwide terms.
  # Each concrete occupational term is queried independently: JobSearch uses AND for words.
  queries=['byggarbetare','anläggningsarbetare','markarbetare','grovarbetare','rivningsarbetare','betongarbetare','snickare','produktionsmedarbetare','montör','svetsare','maskinoperatör','demontör']+(FULL_CV_EXTRA_TERMS if full_cv else [])
@@ -1144,8 +1160,12 @@ def _municipality_jobs_impl():
   ident=(kind,str(raw.get('id') or ''))
   if ident in seen:return
   seen.add(ident);counts['granskade']+=1
-  if kind=='links':jobad_places[ident[1]]=(_has_workplace_location(raw),_linked_jobsearch_ids(raw))
-  else:original_places[str(raw.get('id') or '')]=_has_workplace_location(raw)
+  if kind=='links':
+   jobad_places[ident[1]]=(_has_workplace_location(raw),_linked_jobsearch_ids(raw))
+   external_summaries[ident[1]]=raw
+  else:
+   original_places[str(raw.get('id') or '')]=_has_workplace_location(raw)
+   full_originals[str(raw.get('id') or '')]=raw
   matched=_municipality_addresses(raw,city)
   if not matched:
    parsed=parse_external(raw) if kind=='links' else parse_job(raw,'Platsbanken / JobSearch')
@@ -1194,6 +1214,23 @@ def _municipality_jobs_impl():
     found.pop(_normalize_key(lead),None)
     accept(raw,'jobsearch')
    except (requests.RequestException,ValueError,TypeError,KeyError):counts['uppslagsfel']+=1
+ # Reconcile external summaries with already fetched originals; no extra network calls.
+ for source_id,summary in external_summaries.items():
+  original=_matching_original_for_summary(summary,full_originals.values(),city)
+  if not original:continue
+  parsed=parse_external(summary)
+  if not parsed:continue
+  key=_normalize_key(parsed)
+  found.pop(key,None)
+  regional.pop(key,None)
+  original_id=str(original['id'])
+  located,ids=jobad_places[source_id]
+  jobad_places[source_id]=(located,ids or [original_id])
+  counts['jobad_original_linked']+=1
+  raw_title=original.get('headline') or ''
+  status,_=license_classification(original,raw_title,_license_description_text(original))
+  if status=='required':counts['jobad_blocked_license']+=1
+  # The original already passed through accept(), including all disqualifying filters.
  counts['jobad_total']=len(jobad_places)
  counts['jobad_without_location_initial']=sum(not located for located,ids in jobad_places.values())
  counts['jobad_without_location_remaining']=sum(not located and (not ids or not all(original_places.get(i,False) for i in ids)) for located,ids in jobad_places.values())
