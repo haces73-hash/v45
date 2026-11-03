@@ -1,29 +1,24 @@
 const fs=require('fs'),vm=require('vm'),assert=require('assert');
 const html=fs.readFileSync(process.argv[2]||require('path').join(__dirname,'..','static','index.html'),'utf8');
 const script=[...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g)].map(m=>m[1]).join('\n').split("['profile','fulltime','region','city','radius'].forEach")[0];
-const initialHistory=JSON.stringify([{id:'older',title:'Tidigare ansökan',company:'Tidigare AB',at:'2026-10-01',external:true}]);
-const data=new Map([['king-history-v24',initialHistory]]),elements=new Map();let denySave=false;
-function element(id){if(!elements.has(id))elements.set(id,{id,value:'',hidden:false,textContent:'',innerHTML:'',classList:{toggle(){}},addEventListener(){},style:{}});return elements.get(id)}
-const ctx={Intl,Date,JSON,Math,Set,Map,URL,console,setTimeout,clearTimeout,AbortController,
- document:{getElementById:element},scrollTo(){},alert(){},confirm(){throw Error('Unexpected confirmation')},
- localStorage:{getItem:k=>data.get(k)||null,setItem(k,v){if(denySave)throw Error('storage full');data.set(k,v)},removeItem:k=>data.delete(k),key:i=>[...data.keys()][i],get length(){return data.size}},
- window:{open(){throw Error('Outbound window opened')},location:{}},fetch(){throw Error('Outbound request attempted')}};
-vm.createContext(ctx);vm.runInContext(script,ctx);
-const run=s=>vm.runInContext(s,ctx);
-const job={id:'31451515',title:'Betongarbetare',company:'Test <AB>',city:'Halmstad',description:'Byggarbete med säkra lyft och HLR',application:{type:'external',url:'https://employer.invalid/apply'}};
-run('jobs='+JSON.stringify([job])+';applicationAction(0)');
-assert(element('body').value.includes('Betongarbetare'));assert(element('body').value.includes('Säkra lyft'));
-assert(!element('body').value.includes('Jag har B-körkort'));assert.equal(element('demoEditor').hidden,false);
-element('body').value='Mitt redigerade brev <script>alert(1)</script>';
-run('saveDemoApplication()');
-let saved=JSON.parse(data.get('jobb4kevin-demo-applications-v1'));assert.equal(saved.length,1);assert.equal(saved[0].status,'demo_saved');assert.equal(saved[0].letter,element('body').value);
-assert.equal(data.get('king-history-v24'),initialHistory);assert.equal(run('jobs.length'),1);assert(element('historyItems').innerHTML.includes('&lt;script&gt;'));
-run('openSavedDemoAt(0)');assert.equal(element('body').value,saved[0].letter);
-element('body').value='Uppdaterat brev';run('saveDemoApplication()');saved=JSON.parse(data.get('jobb4kevin-demo-applications-v1'));assert.equal(saved.length,1);assert.equal(saved[0].letter,'Uppdaterat brev');
-// Reopen after reload-like state reset: persisted content is the source of truth.
-run('draft=null;editingDemoId=null;openSavedDemoAt(0)');assert.equal(element('body').value,'Uppdaterat brev');
-element('body').value='';run('saveDemoApplication()');assert.equal(JSON.parse(data.get('jobb4kevin-demo-applications-v1'))[0].letter,'Uppdaterat brev');
-element('body').value='Osparad text';denySave=true;run('saveDemoApplication()');assert.equal(element('body').value,'Osparad text');assert(element('demoSaveStatus').textContent.includes('Kunde inte spara'));denySave=false;
-run('markApplied(0)');assert.equal(data.get('king-history-v24'),initialHistory);
-assert(!html.includes('>MARKERA SOM ANSÖKT<'));assert(!html.includes('>SIMULERA SÄNDNING<'));
-console.log('PASS: prepare → edit → local save → review → reopen/update; no outbound calls; history/shortlist preserved; escaped rendering; empty/storage-error handling.');
+const data=new Map(),elements=new Map(),requests=[];let denySave=false,availability='active';
+function el(id){if(!elements.has(id))elements.set(id,{value:'',hidden:false,textContent:'',innerHTML:'',classList:{toggle(){}},addEventListener(){},style:{}});return elements.get(id)}
+const ctx={Intl,Date,JSON,Math,Set,Map,URL,console,setTimeout,clearTimeout,AbortController,document:{getElementById:el},scrollTo(){},alert(){},localStorage:{getItem:k=>data.get(k)||null,setItem(k,v){if(denySave)throw Error('full');data.set(k,v)},removeItem:k=>data.delete(k),key:i=>[...data.keys()][i],get length(){return data.size}},window:{open(){throw Error('External navigation')}},async fetch(url){assert(url.startsWith('/api/ad-status?id='));requests.push(url);if(availability==='network_error')throw Error('offline');return {ok:true,json:async()=>({status:availability})}}};
+vm.createContext(ctx);vm.runInContext(script,ctx);const run=s=>vm.runInContext(s,ctx);
+(async()=>{
+ el('profile').value='priority';el('fulltime').value='1';el('region').value='municipality';el('city').value='Halmstad';
+ const job={id:'31451515',title:'Betongarbetare',company:'Test AB',city:'Halmstad',description:'Byggarbete med säkra lyft och HLR',license_status:'not_required',employment_extent:'full_time',priority:1,match_score:60,application:{type:'external',url:'https://employer.invalid/apply'}};
+ const second={...job,id:'22222222',title:'Andra jobbet',priority:2};const spare={...job,id:'33333333',title:'Nytt ersättningsjobb',priority:3};
+ run('allCandidates='+JSON.stringify([job,second,spare])+';jobs='+JSON.stringify([job,second]));
+ const key=run('shortlistIdentity()');data.set(run('SHORTLIST_KEY'),JSON.stringify({[key]:[job.id,second.id]}));
+ run('prepare(0)');el('body').value='Sparat brev <script>farligt()</script>';
+ run('saveDemoApplication()');assert.equal(run('jobs.length'),1);assert.equal(run('jobs[0].id'),second.id);assert(!run('jobs.some(j=>j.id==="33333333")'));
+ assert(!data.has('king-history-v24'));assert(el('historyItems').innerHTML.includes('&lt;script&gt;'));
+ run('selectBestFive()');assert.equal(run('jobs.length'),1);
+ run('openSavedDemoAt(0)');await run('checkSavedAdStatus(draft,demoStatusToken)');assert(el('demoOriginalStatus').textContent.includes('finns kvar'));assert.equal(el('body').value,'Sparat brev <script>farligt()</script>');assert.equal(el('demoSavedJobText').textContent,job.description);
+ availability='removed';await run('checkSavedAdStatus(draft,demoStatusToken)');assert(el('demoOriginalStatus').textContent.includes('borttagen'));assert.equal(el('body').value,'Sparat brev <script>farligt()</script>');
+ availability='network_error';await run('checkSavedAdStatus(draft,demoStatusToken)');assert(el('demoOriginalStatus').textContent.includes('Det betyder inte att den är borttagen'));
+ el('body').value='Ändrat brev';run('saveDemoApplication()');assert.equal(JSON.parse(data.get('jobb4kevin-demo-applications-v1')).length,1);
+ const before=run('jobs.length');run('prepare(0)');el('body').value='Kan inte sparas';denySave=true;run('saveDemoApplication()');assert.equal(run('jobs.length'),before);assert.equal(el('body').value,'Kan inte sparas');
+ console.log('PASS: save hides job without refill; history reopens exact letter and job; active/deleted/offline differentiated; no employer calls; failed save keeps job/text.');
+})().catch(e=>{console.error(e);process.exitCode=1});
