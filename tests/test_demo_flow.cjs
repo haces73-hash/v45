@@ -1,9 +1,9 @@
 const fs=require('fs'),vm=require('vm'),assert=require('assert');
 const html=fs.readFileSync(process.argv[2]||require('path').join(__dirname,'..','static','index.html'),'utf8');
 const script=[...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g)].map(m=>m[1]).join('\n').split("['profile','fulltime','region','city','radius'].forEach")[0];
-const data=new Map(),elements=new Map(),requests=[];let denySave=false,availability='active';
+const data=new Map(),elements=new Map(),requests=[];let denySave=false,availability='active',resetApproval=false;
 function el(id){if(!elements.has(id))elements.set(id,{value:'',hidden:false,textContent:'',innerHTML:'',classList:{toggle(){}},addEventListener(){},style:{}});return elements.get(id)}
-const ctx={Intl,Date,JSON,Math,Set,Map,URL,console,setTimeout,clearTimeout,AbortController,document:{getElementById:el},scrollTo(){},alert(){},localStorage:{getItem:k=>data.get(k)||null,setItem(k,v){if(denySave)throw Error('full');data.set(k,v)},removeItem:k=>data.delete(k),key:i=>[...data.keys()][i],get length(){return data.size}},window:{open(){throw Error('External navigation')}},async fetch(url){assert(url.startsWith('/api/ad-status?id='));requests.push(url);if(availability==='network_error')throw Error('offline');return {ok:true,json:async()=>({status:availability})}}};
+const ctx={Intl,Date,JSON,Math,Set,Map,URL,console,setTimeout,clearTimeout,AbortController,document:{getElementById:el},confirm(){return resetApproval},scrollTo(){},alert(){},localStorage:{getItem:k=>data.get(k)||null,setItem(k,v){if(denySave)throw Error('full');data.set(k,v)},removeItem:k=>data.delete(k),key:i=>[...data.keys()][i],get length(){return data.size}},window:{open(){throw Error('External navigation')}},async fetch(url){assert(url.startsWith('/api/ad-status?id='));requests.push(url);if(availability==='network_error')throw Error('offline');return {ok:true,json:async()=>({status:availability})}}};
 vm.createContext(ctx);vm.runInContext(script,ctx);const run=s=>vm.runInContext(s,ctx);
 (async()=>{
  el('profile').value='priority';el('fulltime').value='1';el('region').value='municipality';el('city').value='Halmstad';
@@ -20,5 +20,21 @@ vm.createContext(ctx);vm.runInContext(script,ctx);const run=s=>vm.runInContext(s
  availability='network_error';await run('checkSavedAdStatus(draft,demoStatusToken)');assert(el('demoOriginalStatus').textContent.includes('Det betyder inte att den är borttagen'));
  el('body').value='Ändrat brev';run('saveDemoApplication()');assert.equal(JSON.parse(data.get('jobb4kevin-demo-applications-v1')).length,1);
  const before=run('jobs.length');run('prepare(0)');el('body').value='Kan inte sparas';denySave=true;run('saveDemoApplication()');assert.equal(run('jobs.length'),before);assert.equal(el('body').value,'Kan inte sparas');
+ denySave=false;
+ data.set('king-declines-v24',JSON.stringify({'declined-job':1}));
+ data.set('test-search-cache','keep');
+ const beforeReset=data.get('jobb4kevin-demo-applications-v1');
+ run('resetApplicationHistory()');
+ assert.equal(data.get('jobb4kevin-demo-applications-v1'),beforeReset);
+ resetApproval=true;
+ run('resetApplicationHistory()');
+ assert.deepEqual(JSON.parse(data.get('jobb4kevin-demo-applications-v1')),[]);
+ assert.deepEqual(JSON.parse(data.get('king-history-v24')),[]);
+ assert.equal(data.get('test-search-cache'),'keep');
+ assert.equal(JSON.parse(data.get('king-declines-v24'))['declined-job'],1);
+ assert(run('jobs.some(j=>j.id==="31451515")'));
+ assert(!run('jobs.some(j=>j.id==="33333333")'));
+ assert.equal(el('body').value,'');
+ assert(el('historyResetStatus').textContent.includes('nollställd'));
  console.log('PASS: save hides job without refill; history reopens exact letter and job; active/deleted/offline differentiated; no employer calls; failed save keeps job/text.');
 })().catch(e=>{console.error(e);process.exitCode=1});
