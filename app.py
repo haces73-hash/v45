@@ -1016,6 +1016,13 @@ def _jobs_impl():
      else:build_diag['license_detail_failures']+=1
     except (requests.RequestException,ValueError):
      build_diag['license_detail_failures']+=1
+  if isinstance(raw,dict) and str(raw.get('id'))==BUILD_REFERENCE_ID:
+   title=raw.get('headline') or raw.get('title') or ''
+   state,detail,_,_=_license_decision(raw,title,_license_description_text(raw))
+   build_diag['reference_license_trace']['slutligt_beslut']=state
+   build_diag['reference_license_trace']['slutlig_grund']=detail
+   if state=='optional' and 'API-UPPGIFT AVVIKER' in detail:
+    build_diag['reference_raw_reason']='Körkort meriterande i originaltext; API avviker – passerar körkortsfiltret'
   parsed=parse_job(raw,'Platsbanken / JobSearch')
   record_sample(raw,parsed,'Platsbanken / JobSearch')
   if parsed:
