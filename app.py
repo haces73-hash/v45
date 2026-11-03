@@ -122,6 +122,17 @@ def _explicit_optional_licence(text):
    return True
  return False
 
+def _mandatory_road_license_text(text):
+ """Evaluate each entitlement separately: optional C must not cancel mandatory B."""
+ for line in re.split(r'[\n\r;.!?•]+',str(text or '')):
+  for clause in re.split(r',|\b(?:och|men)\b',line,flags=re.I):
+   clause=re.sub(r'(?i)\b(b|be|c|ce|d)\s*-\s*kort\b',r'\1-körkort',clause)
+   if not ROAD_LICENSE.search(clause):continue
+   if NO_ROAD_LICENSE.search(clause) or OPTIONAL_WORDS.search(clause):continue
+   if MANDATORY_WORDS.search(clause) or re.search(r'(?i)\b(?:har|innehar)\s+(?:(?:ett|giltigt)\s+)*(?:b|be|c|ce|d)?\s*[- ]?\s*körkort\b',clause):
+    return True
+ return False
+
 def _text_license_override(text):
  """Use explicit employer wording over a conflicting structured licence flag.
  Never override when the description also explicitly requires a road licence.
@@ -183,6 +194,8 @@ def _license_decision(ad,title,text):
  """Keep the decision trace without storing actual qualification values."""
  structured,path=_structured_license_evidence(ad)
  text=_license_description_text(ad,text)
+ if _mandatory_road_license_text(text):
+  return ('required','Obligatoriskt körkort framgår av annonstexten','text uttryckligt krav','description/text')
  if structured=='required':
   text_status=_text_license_override(text)
   if text_status=='optional':
@@ -1070,6 +1083,30 @@ def _has_workplace_location(raw):
   if _place_coords(address.get('municipality')) or _place_coords(address.get('city')):return True
  return False
 
+def _deduplicate_recruitment_jobs(items):
+ """Merge only a shared employer recruitment ID or an identical full ad."""
+ from urllib.parse import urlsplit
+ import hashlib
+ kept=[];seen_recruitments=set();seen_full_texts=set()
+ for job in items:
+  employer=_norm_match(job.get('company'))
+  title=_norm_match(job.get('title'))
+  city=_norm_match(job.get('city'))
+  url=(job.get('application') or {}).get('url') or ''
+  host=(urlsplit(url).hostname or '').casefold()
+  recruitment_id=''
+  if host in ('lernia.se','www.lernia.se','connect.lernia.se'):
+   match=re.search(r'/(?:jobs/)?(\d{6,})[-/]|-(\d{6,})/?(?:[?#]|$)',url)
+   if match:recruitment_id=next(x for x in match.groups() if x)
+  reference=(employer,title,city,recruitment_id) if recruitment_id else None
+  description=re.sub(r'\s+',' ',str(job.get('description') or '')).strip()
+  full_key=(employer,title,city,hashlib.sha256(description.encode()).hexdigest()) if _has_original_details(job) and len(description)>=200 else None
+  if (reference and reference in seen_recruitments) or (full_key and full_key in seen_full_texts):continue
+  if reference:seen_recruitments.add(reference)
+  if full_key:seen_full_texts.add(full_key)
+  kept.append(job)
+ return kept
+
 def _municipality_jobs_impl():
  from concurrent.futures import ThreadPoolExecutor,as_completed
  started=time.monotonic()
@@ -1081,7 +1118,7 @@ def _municipality_jobs_impl():
  jobad_places={};original_places={}
  # Search occupation groups in the selected municipality rather than nationwide terms.
  # Each concrete occupational term is queried independently: JobSearch uses AND for words.
- queries=['byggarbetare','anläggningsarbetare','markarbetare','grovarbetare','rivningsarbetare','betongarbetare','snickare','produktionsmedarbetare','montör','svetsare']+(FULL_CV_EXTRA_TERMS if full_cv else [])
+ queries=['byggarbetare','anläggningsarbetare','markarbetare','grovarbetare','rivningsarbetare','betongarbetare','snickare','produktionsmedarbetare','montör','svetsare','maskinoperatör','demontör']+(FULL_CV_EXTRA_TERMS if full_cv else [])
  tasks=[('jobsearch',term) for term in queries]
  tasks += [('links',term) for term in ('bygg','snickare','montör','svetsare')]
  def fetch(task):
@@ -1154,7 +1191,7 @@ def _municipality_jobs_impl():
  counts['jobad_without_location_initial']=sum(not located for located,ids in jobad_places.values())
  counts['jobad_without_location_remaining']=sum(not located and (not ids or not all(original_places.get(i,False) for i in ids)) for located,ids in jobad_places.values())
  counts['jobad_location_resolved']=counts['jobad_without_location_initial']-counts['jobad_without_location_remaining']
- ranked=sorted(found.values(),key=lambda j:(j['priority'],-j['match_score'],j['id']))
+ ranked=_deduplicate_recruitment_jobs(sorted(found.values(),key=lambda j:(j['priority'],-j['match_score'],j['id'])))
  qualified=[j for j in ranked if _classify_listing(j)=='qualified']
  review=[j for j in ranked if _classify_listing(j)=='needs_review']
  keys={_normalize_key(j) for j in ranked}
