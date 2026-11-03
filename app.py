@@ -79,6 +79,21 @@ def _text_license_override(text):
  clauses=re.split(r'[\n\r;.!?•]+',str(text or ''))
  optional=False
  mandatory=False
+ # A heading applies to its list, even when the licence is several items down.
+ section=None
+ section_text=re.sub(r'(?i)</?(?:p|li|ul|ol|br|h[1-6])\b[^>]*>', '\n', str(text or ''))
+ for line in clean(section_text).splitlines():
+  line=line.strip(' \t•-')
+  if not line:continue
+  if re.fullmatch(r'(?i)(?:meriterande|meriterande kvalifikationer)\s*:',line):
+   section='optional';continue
+  if re.fullmatch(r'(?i)(?:krav|krav för tjänsten|kvalifikationskrav)\s*:',line):
+   section='mandatory';continue
+  if line.endswith(':'):
+   section=None;continue
+  if ROAD_LICENSE.search(line):
+   if section=='optional':optional=True
+   elif section=='mandatory' and not OPTIONAL_WORDS.search(line) and not NO_ROAD_LICENSE.search(line):mandatory=True
  for clause in clauses:
   if not ROAD_LICENSE.search(clause):continue
   if NO_ROAD_LICENSE.search(clause):
@@ -98,7 +113,9 @@ def _license_description_text(ad,text=''):
   parts.extend(str(desc.get(k) or '') for k in ('text','text_formatted','conditions'))
  elif isinstance(desc,str):parts.append(desc)
  # Preserve word boundaries when HTML tags separate 'körkort' and 'meriterande'.
- return clean(' '.join(p for p in parts if p))
+ joined='\n'.join(p for p in parts if p)
+ joined=re.sub(r'(?i)</?(?:p|li|ul|ol|br|h[1-6])\b[^>]*>', '\n', joined)
+ return clean(joined)
 
 def _license_conflict(ad,title,text):
  structured,path=_structured_license_evidence(ad)
