@@ -953,7 +953,7 @@ def _jobs_impl():
  radius=radius if radius in (0,10,30,50,100) else 30
  from collections import defaultdict
  found={};unknown_places={};unknown_stats=defaultdict(int);errors=[];sources_ok=set();external_candidates={};location_enrichment_candidates={};location_enrichment_stats=defaultdict(int);title_location_review={};review_stats=defaultdict(int)
- build_diag={'found':set(),'qualified':set(),'possible':set(),'rejected':set(),'reference_seen':False,'reference_stage':'Inte hittad i API-sökresultat','reference_raw_reason':'','reference_city':''}
+ build_diag={'found':set(),'qualified':set(),'possible':set(),'rejected':set(),'reference_seen':False,'reference_stage':'Inte hittad i API-sökresultat','reference_raw_reason':'','reference_city':'','reference_license_trace':{},'building_ads':{}}
  diagnostics={'license_conflicts':0,'license_block_rows':[],'license_evidence':defaultdict(int),'enrichment_by_category':defaultdict(lambda:{'attempted':0,'completed':0,'license_rejected':0}),'fulltime_excluded':set(),'fulltime_unknown':set(),'source_id_attempted':set(),'source_id_missing':0,'source_id_completed':0,'source_id_failed':0,'source_id_mismatch':0,'source_id_license_rejected':0,'location_samples':defaultdict(dict),'seen_ids':set(),'rejected':defaultdict(set),'missing_license':0,'source_seen':defaultdict(set),'unknown_by_source':defaultdict(set),'detail_attempt_ids':set(),'detail_resolved_ids':set(),'detail_failed_ids':set(),'unknown_reasons':defaultdict(set)}
  def record_sample(raw,parsed,source):
   if parsed and (parsed.get('lat') is not None or _place_coords(parsed.get('city'))):return
@@ -966,7 +966,11 @@ def _jobs_impl():
  def add_jobsearch(raw,region_name=None):
   if isinstance(raw,dict) and _construction_title(raw.get('headline') or raw.get('title')):
    ident=str(raw.get('id') or '')
-   if ident:build_diag['found'].add(ident)
+   if ident:
+    build_diag['found'].add(ident)
+    if ident not in build_diag['building_ads'] and len(build_diag['building_ads'])<40:
+     build_diag['building_ads'][ident]={'id':ident,'title':str(raw.get('headline') or raw.get('title') or '')[:160],'url':'https://arbetsformedlingen.se/platsbanken/annonser/'+ident}
+
    if ident==BUILD_REFERENCE_ID:
     build_diag['reference_seen']=True
     build_diag['reference_stage']='Hittad i JobSearch'
@@ -977,6 +981,9 @@ def _jobs_impl():
    if _remote_job_evidence(raw):build_diag['reference_raw_reason']='Distansarbete'
    else:
     license_state,license_detail=license_classification(raw,title,desc)
+    structured,field=_structured_license_evidence(raw)
+    evidence=_license_description_text(raw,desc)
+    build_diag['reference_license_trace']={'api':structured,'api_field':field or 'ej angivet','text_meriterande':_text_license_override(evidence)=='optional','text_obligatoriskt':_text_license_override(evidence)=='mandatory','text_innehaller_korkort':bool(ROAD_LICENSE.search(evidence)),'text_tecken':len(evidence),'beslut':license_state,'beslutsgrund':license_detail}
     if license_state=='required':build_diag['reference_raw_reason']='Obligatoriskt körkort ('+str(license_detail)[:100]+')'
     elif license_state=='optional' and 'API-UPPGIFT AVVIKER' in license_detail:build_diag['reference_raw_reason']='Körkort meriterande i text; API avviker – passerar körkortsfiltret'
   parsed=parse_job(raw,'Platsbanken / JobSearch')
@@ -1249,6 +1256,7 @@ def _jobs_impl():
     (build_diag['possible'] if job.get('building_possible_match') else build_diag['qualified']).add(ident)
     if ident==BUILD_REFERENCE_ID:build_diag['reference_stage']='Godkänd byggkandidat'
   build_report={k:(len(v) if isinstance(v,set) else v) for k,v in build_diag.items()}
+  build_report['building_ads']=list(build_diag['building_ads'].values())
   build_report['reasons']={name:len(ids & build_diag['found']) for name,ids in diagnostics['rejected'].items() if ids & build_diag['found']}
   if build_diag['reference_seen'] and BUILD_REFERENCE_ID not in build_diag['qualified'] and BUILD_REFERENCE_ID not in build_diag['possible']:
    reasons=[name for name,ids in diagnostics['rejected'].items() if BUILD_REFERENCE_ID in ids]
