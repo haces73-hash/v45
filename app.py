@@ -1045,6 +1045,17 @@ def _municipality_addresses(raw,city):
    matches.append(address)
  return matches
 
+def _has_workplace_location(raw):
+ """Location evidence belongs to the workplace, not employer/head office or title."""
+ entries=_as_list(raw.get('workplace_addresses'))
+ if isinstance(raw.get('workplace_address'),dict):entries=entries+[raw['workplace_address']]
+ for address in entries:
+  if not isinstance(address,dict):continue
+  code=address.get('municipality_code')
+  if code and swedish_places.municipality_from_code(code):return True
+  if _place_coords(address.get('municipality')) or _place_coords(address.get('city')):return True
+ return False
+
 def _municipality_jobs_impl():
  from concurrent.futures import ThreadPoolExecutor,as_completed
  started=time.monotonic()
@@ -1053,6 +1064,7 @@ def _municipality_jobs_impl():
  full_cv=request.args.get('profile','priority')=='full'
  only_fulltime=request.args.get('fulltime','1')!='0'
  found={};regional={};details={};seen=set();errors=[];counts=defaultdict(int);sources=set()
+ jobad_places={};original_places={}
  # Search occupation groups in the selected municipality rather than nationwide terms.
  # Each concrete occupational term is queried independently: JobSearch uses AND for words.
  queries=['byggarbetare','anläggningsarbetare','markarbetare','grovarbetare','rivningsarbetare','betongarbetare','snickare','produktionsmedarbetare','montör','svetsare']+(FULL_CV_EXTRA_TERMS if full_cv else [])
@@ -1065,7 +1077,7 @@ def _municipality_jobs_impl():
    params={'q':term,'municipality':SEARCH_MUNICIPALITIES[city],'limit':100}
   else:
    url='https://links.api.jobtechdev.se/joblinks'
-   params={'q':term+' '+city,'limit':40,'sort':'relevance'}
+   params={'q':term+' '+city,'limit':40,'sort':'relevance','exclude_source':'arbetsformedlingen.se'}
   response=requests.get(url,params=params,timeout=5,headers={'Accept':'application/json'})
   response.raise_for_status()
   data=response.json()
@@ -1074,6 +1086,8 @@ def _municipality_jobs_impl():
   ident=(kind,str(raw.get('id') or ''))
   if ident in seen:return
   seen.add(ident);counts['granskade']+=1
+  if kind=='links':jobad_places[ident[1]]=(_has_workplace_location(raw),_linked_jobsearch_ids(raw))
+  else:original_places[str(raw.get('id') or '')]=_has_workplace_location(raw)
   matched=_municipality_addresses(raw,city)
   if not matched:
    parsed=parse_external(raw) if kind=='links' else parse_job(raw,'Platsbanken / JobSearch')
@@ -1116,10 +1130,15 @@ def _municipality_jobs_impl():
     raw=future.result();counts['originalkontroller']+=1
     if _norm_match(raw.get('headline'))!=_norm_match(lead.get('title')) or _norm_match((raw.get('employer') or {}).get('name'))!=_norm_match(lead.get('company')):
      counts['fel_original']+=1;continue
+    original_places[ident]=_has_workplace_location(raw)
     # Remove the incomplete duplicate before evaluating full original requirements.
     found.pop(_normalize_key(lead),None)
     accept(raw,'jobsearch')
    except (requests.RequestException,ValueError,TypeError,KeyError):counts['uppslagsfel']+=1
+ counts['jobad_total']=len(jobad_places)
+ counts['jobad_without_location_initial']=sum(not located for located,ids in jobad_places.values())
+ counts['jobad_without_location_remaining']=sum(not located and (not ids or not all(original_places.get(i,False) for i in ids)) for located,ids in jobad_places.values())
+ counts['jobad_location_resolved']=counts['jobad_without_location_initial']-counts['jobad_without_location_remaining']
  ranked=sorted(found.values(),key=lambda j:(j['priority'],-j['match_score'],j['id']))
  qualified=[j for j in ranked if _classify_listing(j)=='qualified']
  review=[j for j in ranked if _classify_listing(j)=='needs_review']
@@ -1579,7 +1598,7 @@ def _jobs_impl():
    url='https://jobsearch.api.jobtechdev.se/search'
    timeout=7 if variant=='local_build' else 6
   else:
-   params={'q':term,'limit':40,'sort':'relevance'}
+   params={'q':term,'limit':40,'sort':'relevance','exclude_source':'arbetsformedlingen.se'}
    url='https://links.api.jobtechdev.se/joblinks'
    timeout=4
   response=requests.get(url,params=params,timeout=timeout,headers={'Accept':'application/json','User-Agent':'Jobb4kevin/81'})
