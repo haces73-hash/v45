@@ -724,9 +724,16 @@ def _record_license_evidence(diagnostics,ad,title,text):
  if status=='required':
   diagnostics['license_evidence'][kind+' / '+(path or 'fält ej angivet')]+=1
 
+def _has_original_details(job):
+ return bool(job and str(job.get('detail_check_status') or '').startswith('Fullständig annons') and len(str(job.get('description') or '').strip())>=45)
+
+def _candidate_data_rank(job):
+ # Original evidence takes precedence over a shorter, higher-scoring summary.
+ return (int(_has_original_details(job)),-job['priority'],job['match_score'],len(job.get('description') or ''))
+
 def _confirm_from_source_id(raw,parsed,diagnostics):
  """Enrich from the canonical JobSearch detail API, using only a trusted ID."""
- if not parsed or parsed.get('verification_status')!='unverified':return parsed
+ if not parsed or _has_original_details(parsed):return parsed
  ident=_linked_jobsearch_id(raw)
  if not ident:
   diagnostics['source_id_missing']+=1
@@ -928,7 +935,7 @@ def _add_candidate(ad,found,city,radius,full_cv=False,diagnostics=None):
   return
  key=_normalize_key(ranked)
  current=found.get(key)
- if current is None or (-ranked['priority'],ranked['match_score'],len(ranked['description']))>(-current['priority'],current['match_score'],len(current['description'])):
+ if current is None or _candidate_data_rank(ranked)>_candidate_data_rank(current):
   found[key]=ranked
 
 # Regional coverage: municipalities used for checking and representative local queries.
@@ -1182,7 +1189,7 @@ def _jobs_impl():
      continue
  def enrich_globally():
   eligible=[(key,found[key],raw) for key,raw in external_candidates.items()
-            if key in found and found[key].get('verification_status')=='unverified']
+            if key in found and not _has_original_details(found[key])]
   eligible.sort(key=lambda item:(item[1]['priority'],-item[1]['match_score'],
     item[1]['km'] if item[1]['km'] is not None else 9999,str(item[1]['id'])))
   for key,ad,raw in eligible[:6]:
