@@ -471,8 +471,8 @@ def parse_job(ad,source):
 # CV-baserade yrkesområden: byggutbildning, snickeri/produktion och svetsutbildning.
 CV_GROUPS={
  'Bygg och anläggning':{'anläggningsarbetare':48,'markarbetare':47,'byggmedhjälpare':48,'betongarbetare':44,'betongare':44,'grovarbetare':40,'byggarbetare':43,'byggnadsträarbetare':43,'träarbetare':42,'snickare':40,'byggmontör':38,'byggnadsarbetare':44,'anläggningsmedarbetare':44,'vägarbetare':38,'hjälparbetare':35,'bygglärling':42,'bygglärling':42,'rivningsarbetare':38,'byggservice':39,'lärling':32},
- 'Snickeri och träproduktion':{'snickeri':45,'snickare':43,'träindustri':43,'träbearbetning':43,'träproduktion':43,'möbelsnickare':33,'sågverk':34},
- 'Industri och produktion':{'produktionsmedarbetare':42,'industriarbetare':41,'produktionsarbetare':42,'verkstadsmedarbetare':42,'montör':40,'montagearbetare':41,'maskinoperatör':32,'produktionsoperatör':32},
+ 'Snickeri och träproduktion':{'snickeri':45,'snickare':43,'träindustri':43,'träbearbetning':43,'träproduktion':43,'möbelsnickare':33,'sågverk':34,'möbelmontör':43},
+ 'Industri och produktion':{'produktionsmedarbetare':42,'industriarbetare':41,'produktionsarbetare':42,'verkstadsmedarbetare':42,'montör':40,'montagearbetare':41,'maskinoperatör':32,'produktionsoperatör':32,'processoperatör':32,'assemblör':40},
  'Svets och metallarbete':{'metallarbetare':36,'svetsare':35,'svetsoperatör':35,'svetsmontör':35,'plåtbearbetare':34,'metallbearbetare':34}}
 PRIORITY=('Bygg och anläggning','Snickeri och träproduktion','Industri och produktion','Svets och metallarbete')
 FULL_CV_GROUPS={'Omsorg och personlig assistans':{'personlig assistent':36,'omsorgsmedarbetare':32,'vårdbiträde':30,'omsorgspersonal':30},'Lager och butik':{'lagerarbetare':34,'lagerpersonal':33,'orderplockare':30,'butiksmedarbetare':34,'butikssäljare':32},'Service':{'servicemedarbetare':29,'servicepersonal':28}}
@@ -572,6 +572,10 @@ def score_job(j,full_cv=False):
  for group,words in (dict(CV_GROUPS,**FULL_CV_GROUPS) if full_cv else CV_GROUPS).items():
   strength=max((points for word,points in words.items() if word in title),default=0)
   if strength:groups.append((group,strength))
+ # Generic operator titles need explicit evidence of the actual process-operator role.
+ if not groups and re.search(r'\boperatör(?:er)?\b',title) and re.search(
+     r'(?i)\b(?:som|en|två|flera)\s+(?:(?:tekniskt|intresserad|engagerad)\s+){0,3}processoperatör',desc[:1500]):
+  groups=[('Industri och produktion',32)]
  if not groups:return None
  # Pick the most specific CV category; building is only first when the title
  # actually denotes a construction job rather than generic 'snickare'.
@@ -1107,6 +1111,8 @@ def _deduplicate_recruitment_jobs(items):
   kept.append(job)
  return kept
 
+ADDITIONAL_CV_SEARCH_TERMS=["bygglärling","byggmedhjälpare","hjälparbetare","snickerimedarbetare","träindustriarbetare","möbelmontör","processoperatör","produktionsoperatör","verkstadsmedarbetare","assemblör","montagearbetare","produktionsmontör"]
+
 def _municipality_jobs_impl():
  from concurrent.futures import ThreadPoolExecutor,as_completed
  started=time.monotonic()
@@ -1119,8 +1125,9 @@ def _municipality_jobs_impl():
  # Search occupation groups in the selected municipality rather than nationwide terms.
  # Each concrete occupational term is queried independently: JobSearch uses AND for words.
  queries=['byggarbetare','anläggningsarbetare','markarbetare','grovarbetare','rivningsarbetare','betongarbetare','snickare','produktionsmedarbetare','montör','svetsare','maskinoperatör','demontör']+(FULL_CV_EXTRA_TERMS if full_cv else [])
+ queries=list(dict.fromkeys(queries+ADDITIONAL_CV_SEARCH_TERMS))
  tasks=[('jobsearch',term) for term in queries]
- tasks += [('links',term) for term in ('bygg','snickare','montör','svetsare')]
+ tasks += [('links',term) for term in dict.fromkeys(['bygg','snickare','montör','svetsare']+ADDITIONAL_CV_SEARCH_TERMS)]
  def fetch(task):
   kind,term=task
   if kind=='jobsearch':
