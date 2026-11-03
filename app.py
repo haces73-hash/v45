@@ -1065,7 +1065,7 @@ def _municipality_jobs_impl():
    params={'q':term,'municipality':SEARCH_MUNICIPALITIES[city],'limit':100}
   else:
    url='https://links.api.jobtechdev.se/joblinks'
-   params={'q':term+' '+city,'limit':40,'sort':'relevance'}
+   params={'q':term+' '+city,'limit':40,'sort':'relevance','exclude_source':'arbetsformedlingen.se'}
   response=requests.get(url,params=params,timeout=5,headers={'Accept':'application/json'})
   response.raise_for_status()
   data=response.json()
@@ -1579,7 +1579,7 @@ def _jobs_impl():
    url='https://jobsearch.api.jobtechdev.se/search'
    timeout=7 if variant=='local_build' else 6
   else:
-   params={'q':term,'limit':40,'sort':'relevance'}
+   params={'q':term,'limit':40,'sort':'relevance','exclude_source':'arbetsformedlingen.se'}
    url='https://links.api.jobtechdev.se/joblinks'
    timeout=4
   response=requests.get(url,params=params,timeout=timeout,headers={'Accept':'application/json','User-Agent':'Jobb4kevin/81'})
