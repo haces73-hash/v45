@@ -1879,6 +1879,32 @@ def documents(kind, format):
  name,mime,download=item
  return send_from_directory(app.static_folder,name,mimetype=mime,as_attachment=download,download_name=name,conditional=False)
 
+def _saved_ad_status(ident):
+ """Check only fixed public JobTech APIs; never contact an employer or accept arbitrary URLs."""
+ if re.fullmatch(r'[0-9]{4,24}',ident):
+  url='https://jobsearch.api.jobtechdev.se/ad/'+ident
+ elif ident.startswith('links:') and re.fullmatch(r'[A-Za-z0-9_-]{8,90}',ident[6:]):
+  url='https://links.api.jobtechdev.se/ad/'+ident[6:]
+ else:return {'status':'unknown','reason':'unsupported_id'}
+ try:
+  response=requests.get(url,timeout=5,headers={'Accept':'application/json'})
+  if response.status_code in (404,410):return {'status':'removed','reason':'not_in_source'}
+  if not response.ok:return {'status':'unknown','reason':'source_error'}
+  data=response.json()
+  if not isinstance(data,dict):return {'status':'unknown','reason':'invalid_response'}
+  expected=ident[6:] if ident.startswith('links:') else ident
+  if str(data.get('id'))!=expected:return {'status':'unknown','reason':'identity_mismatch'}
+  if data.get('removed') is True:return {'status':'removed','reason':'source_removed'}
+  if data.get('removed') is False or data.get('headline'):
+   return {'status':'active','reason':'listed_in_source'}
+  return {'status':'unknown','reason':'missing_status'}
+ except (requests.RequestException,ValueError):
+  return {'status':'unknown','reason':'lookup_failed'}
+
+@app.get('/api/ad-status')
+def saved_ad_status():
+ return jsonify(_saved_ad_status(str(request.args.get('id',''))))
+
 @app.get('/health')
 def health():
  # Liveness must never contact external job APIs or wait for the search lock.
