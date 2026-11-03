@@ -90,6 +90,16 @@ def _text_license_override(text):
   if required and not preferred:mandatory=True
  return 'mandatory' if mandatory else ('optional' if optional else None)
 
+def _license_description_text(ad,text=''):
+ """One source of truth for licence decisions across list and detail responses."""
+ parts=[str(text or '')]
+ desc=ad.get('description') if isinstance(ad,dict) else None
+ if isinstance(desc,dict):
+  parts.extend(str(desc.get(k) or '') for k in ('text','text_formatted','conditions'))
+ elif isinstance(desc,str):parts.append(desc)
+ # Preserve word boundaries when HTML tags separate 'körkort' and 'meriterande'.
+ return clean(' '.join(p for p in parts if p))
+
 def _license_conflict(ad,title,text):
  structured,path=_structured_license_evidence(ad)
  if structured!='required':return False
@@ -105,6 +115,7 @@ def _structured_license(ad):
 def _license_decision(ad,title,text):
  """Keep the decision trace without storing actual qualification values."""
  structured,path=_structured_license_evidence(ad)
+ text=_license_description_text(ad,text)
  if structured=='required':
   text_status=_text_license_override(text)
   if text_status=='optional':
@@ -542,8 +553,6 @@ def parse_external(ad):
  url=_first_str(link.get('url'),link.get('source_url'),ad.get('url'),ad.get('webpage_url'))
  if not url.startswith('https://') or not title:return None
  lic_state,lic_text=license_classification(ad,title,text)
- if lic_state=='required' and _license_conflict(ad,title,text):
-  lic_state,lic_text='conflict','Motstridiga körkortsuppgifter – kontrollera originalannonsen'
  if lic_state=='required':return None
  source=_first_str(link.get('label'),link.get('source'),ad.get('source')) or 'Extern jobbsajt via JobAd Links'
  options=_location_options(ad,text)
@@ -719,15 +728,8 @@ def _confirm_from_source_id(raw,parsed,diagnostics):
   raw_text=clean(raw_description.get('text','') if isinstance(raw_description,dict) else str(raw_description))
   if _license_conflict(detail,raw_title,raw_text):
    diagnostics['license_conflicts']+=1
-   _,path=_structured_license_evidence(detail)
-   diagnostics['license_block_rows'].append({'yrke':parsed.get('cv_match_area','Övrigt'),
-      'beslut':'Behöver kontrolleras – motsägelse','fält':path or 'description/text',
-      'grund':'Strukturerat krav motsägs av uttryckligen meriterande körkort i annonstext'})
-   parsed['license_status']='conflict'
-   parsed['license']='Motstridiga körkortsuppgifter – kontrollera originalannonsen'
-   parsed['verification_status']='unverified'
-   parsed['detail_check_status']='Motstridiga körkortsuppgifter'
-   return parsed
+   # Do not override the unified text-first licence decision here.
+   # The original is parsed below with the same rules as normal JobSearch ads.
   candidate=parse_job(detail,'Platsbanken / JobSearch')
   if not candidate:
    # A mandatory driving licence can make parse_job reject the ad.
