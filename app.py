@@ -407,7 +407,7 @@ def parse_job(ad,source):
  return {'id':str(ad.get('id') or url),'title':title,'company':employer.get('name') or 'Arbetsgivare ej angiven','city':actual_city, 'description':text[:8500], 'published':ad.get('publication_date') or '', 'deadline':_deadline(ad), 'url':url, 'lat':lat,'lon':lon,'location_options':options,'source':source,'license':lic_text,'license_status':lic_state,'verification_status':_verification_state(text,lic_state),'application':application_route(ad,url),'employment_extent':employment_extent(ad),'detail_check_status':'Fullständig annons från JobSearch' if len(text)>=45 else 'Väntar på detaljkontroll'}
 # CV-baserade yrkesområden: byggutbildning, snickeri/produktion och svetsutbildning.
 CV_GROUPS={
- 'Bygg och anläggning':{'anläggningsarbetare':48,'markarbetare':47,'byggmedhjälpare':48,'betongarbetare':44,'grovarbetare':40,'byggarbetare':43,'byggnadsträarbetare':43,'träarbetare':42,'snickare':40,'byggmontör':38,'byggnadsarbetare':44,'anläggningsmedarbetare':44,'vägarbetare':38,'hjälparbetare':35,'bygglärling':42,'bygglärling':42,'rivningsarbetare':38,'byggservice':39,'lärling':32},
+ 'Bygg och anläggning':{'anläggningsarbetare':48,'markarbetare':47,'byggmedhjälpare':48,'betongarbetare':44,'betongare':44,'grovarbetare':40,'byggarbetare':43,'byggnadsträarbetare':43,'träarbetare':42,'snickare':40,'byggmontör':38,'byggnadsarbetare':44,'anläggningsmedarbetare':44,'vägarbetare':38,'hjälparbetare':35,'bygglärling':42,'bygglärling':42,'rivningsarbetare':38,'byggservice':39,'lärling':32},
  'Snickeri och träproduktion':{'snickeri':45,'snickare':43,'träindustri':43,'träbearbetning':43,'träproduktion':43,'möbelsnickare':33,'sågverk':34},
  'Industri och produktion':{'produktionsmedarbetare':42,'industriarbetare':41,'produktionsarbetare':42,'verkstadsmedarbetare':42,'montör':40,'montagearbetare':41,'maskinoperatör':32,'produktionsoperatör':32},
  'Svets och metallarbete':{'metallarbetare':36,'svetsare':35,'svetsoperatör':35,'svetsmontör':35,'plåtbearbetare':34,'metallbearbetare':34}}
@@ -429,7 +429,17 @@ def _possible_build_match(j):
  experience=bool(re.search(r'(?i)(?:erfaren|självgående|armering|betongarbete)',desc))
  return flexible or experience
 
+def _away_assignment(j):
+ """Only explicit work away from home; a travel allowance alone is not enough."""
+ title=str(j.get('title') or '')
+ if re.search(r'(?i)\btraktamenteuppdrag\b',title):return True
+ for clause in re.split(r'[\n.!?]+',str(j.get('description') or '')):
+  if re.search(r'(?i)\b(?:inte|ej|inget|inga|utan)\b.{0,45}\b(?:annan ort|traktamenteuppdrag)\b',clause):continue
+  if re.search(r'(?i)\b(?:arbete|arbeta|uppdrag|projekt|tjänst)\w*\b.{0,65}\b(?:på annan ort|på andra orter)\b',clause):return True
+ return False
+
 def reject_reason(j,full_cv=False):
+ if _away_assignment(j):return 'Arbete på annan ort / traktamenteuppdrag'
  if is_blocked_employer(j):return 'Veterankraft'
  title=(j.get('title') or '').casefold()
  desc=(j.get('description') or '')[:8500]
