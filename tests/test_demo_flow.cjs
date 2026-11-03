@@ -7,6 +7,21 @@ const ctx={Intl,Date,JSON,Math,Set,Map,URL,console,setTimeout,clearTimeout,Abort
 vm.createContext(ctx);vm.runInContext(script,ctx);const run=s=>vm.runInContext(s,ctx);
 (async()=>{
  el('profile').value='priority';el('fulltime').value='1';el('region').value='municipality';el('city').value='Halmstad';
+ const roleCases=[
+ ['Betongarbetare sökes till Halmstad!','betongarbetare'],
+ ['Vi söker händiga montörer','montör'],
+ ['Processoperatörer med säkerheten i fokus.','processoperatör'],
+ ['Maskinoperatör | Lernia | Halmstad','maskinoperatör'],
+ ['Kablagemontör till produktionsenhet i Halmstad!','kablagemontör']
+ ];
+ for(const [title,role] of roleCases){
+  const source={title,company:'Prowork Göteborg AB',description:''};
+  const letter=run('demoLetter('+JSON.stringify(source)+')');
+  assert(letter.includes('vill söka tjänsten som '+role+' hos Prowork Göteborg AB.'));
+  assert(!letter.includes('sökes till Halmstad'));
+  assert.equal(source.title,title);
+ }
+ assert(run('demoLetter({title:"Spännande möjlighet hos oss!",company:"Test AB",description:""})').includes('vill söka den annonserade tjänsten hos Test AB.'));
  const job={id:'31451515',title:'Betongarbetare',company:'Test AB',city:'Halmstad',description:'Byggarbete med säkra lyft och HLR',license_status:'not_required',employment_extent:'full_time',priority:1,match_score:60,application:{type:'external',url:'https://employer.invalid/apply'}};
  const second={...job,id:'22222222',title:'Andra jobbet',priority:2};const spare={...job,id:'33333333',title:'Nytt ersättningsjobb',priority:3};
  run('allCandidates='+JSON.stringify([job,second,spare])+';jobs='+JSON.stringify([job,second]));
