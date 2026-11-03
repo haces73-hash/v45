@@ -72,6 +72,24 @@ def _explicit_optional_licence(text):
    return True
  return False
 
+def _text_license_override(text):
+ """Use explicit employer wording over a conflicting structured licence flag.
+ Never override when the description also explicitly requires a road licence.
+ """
+ clauses=re.split(r'[\\n\\r;.!?•]+',str(text or ''))
+ optional=False
+ mandatory=False
+ for clause in clauses:
+  if not ROAD_LICENSE.search(clause):continue
+  if NO_ROAD_LICENSE.search(clause):
+   optional=True
+   continue
+  preferred=bool(re.search(r'(?i)(?:körkort|driving licen[cs]e).{0,45}(?:meriterande|önskvärt|en fördel|preferred|inte ett krav)|(?:meriterande|önskvärt|en fördel|preferred).{0,45}(?:körkort|driving licen[cs]e)',clause))
+  required=bool(re.search(r'(?i)(?:körkort|driving licen[cs]e).{0,50}(?:krävs|är ett krav|obligatoriskt|måste ha|fordras)|(?:krav på|måste ha|obligatoriskt|krävs).{0,50}(?:b[- ]?körkort|körkort|driving licen[cs]e)',clause))
+  if preferred:optional=True
+  if required and not preferred:mandatory=True
+ return 'mandatory' if mandatory else ('optional' if optional else None)
+
 def _license_conflict(ad,title,text):
  structured,path=_structured_license_evidence(ad)
  if structured!='required':return False
@@ -87,7 +105,13 @@ def _structured_license(ad):
 def _license_decision(ad,title,text):
  """Keep the decision trace without storing actual qualification values."""
  structured,path=_structured_license_evidence(ad)
- if structured=='required':return ('required','Obligatoriskt körkort enligt strukturerade krav','strukturerat obligatoriskt',path)
+ if structured=='required':
+  text_status=_text_license_override(text)
+  if text_status=='optional':
+   return ('optional','KÖRKORT MERITERANDE ENLIGT ANNONSTEXT – API-UPPGIFT AVVIKER','text meriterande / API obligatoriskt',path)
+  if text_status=='mandatory':
+   return ('required','Obligatoriskt körkort enligt annonstext och API','text och API obligatoriskt',path)
+  return ('required','Obligatoriskt körkort enligt strukturerade krav','strukturerat obligatoriskt',path)
  # Explicit mandatory text must also be checked when structured metadata says not required.
  if structured=='not_required' and not re.search(r'(?i)(?:körkort|driving licen[cs]e).{0,55}(?:krävs|är ett krav|obligatoriskt|måste ha)|(?:krävs|krav på|måste ha|obligatoriskt).{0,55}(?:b[- ]?körkort|driving licen[cs]e)',str(text or '')):return ('not_required','Inget obligatoriskt körkort enligt annonsdata','strukturerat ej krav',path)
  extras=[]
@@ -343,8 +367,6 @@ def parse_job(ad,source):
  raw_city=_city_from_ad(ad,addr,'')
  actual_city=_city_from_ad(ad,addr,text)
  lic_state,lic_text=license_classification(ad,title,text)
- if lic_state=='required' and _license_conflict(ad,title,text):
-  lic_state,lic_text='conflict','Motstridiga körkortsuppgifter – kontrollera originalannonsen'
  if lic_state=='required':return None
  options=_location_options(ad,text)
  lat,lon=_coordinates(addr,ad)
@@ -954,6 +976,7 @@ def _jobs_impl():
    else:
     license_state,license_detail=license_classification(raw,title,desc)
     if license_state=='required':build_diag['reference_raw_reason']='Obligatoriskt körkort ('+str(license_detail)[:100]+')'
+    elif license_state=='optional' and 'API-UPPGIFT AVVIKER' in license_detail:build_diag['reference_raw_reason']='Körkort meriterande i text; API avviker – passerar körkortsfiltret'
   parsed=parse_job(raw,'Platsbanken / JobSearch')
   record_sample(raw,parsed,'Platsbanken / JobSearch')
   if parsed:
@@ -1227,7 +1250,7 @@ def _jobs_impl():
   build_report['reasons']={name:len(ids & build_diag['found']) for name,ids in diagnostics['rejected'].items() if ids & build_diag['found']}
   if build_diag['reference_seen'] and BUILD_REFERENCE_ID not in build_diag['qualified'] and BUILD_REFERENCE_ID not in build_diag['possible']:
    reasons=[name for name,ids in diagnostics['rejected'].items() if BUILD_REFERENCE_ID in ids]
-   if build_diag['reference_raw_reason']:build_report['reference_stage']='Avvisad: '+build_diag['reference_raw_reason']
+   if build_diag['reference_raw_reason'] and not build_diag['reference_raw_reason'].startswith('Körkort meriterande'):build_report['reference_stage']='Avvisad: '+build_diag['reference_raw_reason']
    elif reasons:build_report['reference_stage']='Avvisad: '+', '.join(reasons)
   return {'byggsokning_v105':build_report,'unknown_review_counts':dict(unknown_stats),'rubrikort_granskning':len(title_location_review),'manuell_platsgranskning':dict(review_stats),'platskomplettering':dict(location_enrichment_stats,**{k:diagnostics.get(k,0) for k in ('location_enrichment_attempted','location_enrichment_resolved','location_enrichment_outside','location_enrichment_mismatch')}),'granskade_unika_annonser':len(diagnostics['seen_ids']),
           'uteslutna_per_orsak':{k:len(v) for k,v in diagnostics['rejected'].items()},
