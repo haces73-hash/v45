@@ -22,6 +22,22 @@ vm.createContext(ctx);vm.runInContext(script,ctx);const run=s=>vm.runInContext(s
   assert.equal(source.title,title);
  }
  assert(run('demoLetter({title:"Spännande möjlighet hos oss!",company:"Test AB",description:""})').includes('vill söka den annonserade tjänsten hos Test AB.'));
+ const cadJob={title:'Montör och snickerimedarbetare',company:'Test AB',description:'Snickeri, produktion, ritningsläsning och AutoCAD.'};
+ const cadLetter=run('demoLetter('+JSON.stringify(cadJob)+')');
+ assert.equal((cadLetter.match(/AutoCAD/g)||[]).length,1);
+ assert.equal((cadLetter.match(/snickeriarbete/gi)||[]).length,1);
+ assert.equal((cadLetter.match(/materialbearbetning/gi)||[]).length,1);
+ assert(cadLetter.includes('\n• Erfarenhet av ritningsarbete i AutoCAD\n'));
+ assert(!cadLetter.includes('Jag har erfarenhet av snickeri'));
+ assert(!cadLetter.includes('inklusive ritningsarbete'));
+ const points=run('letterHighlights('+JSON.stringify(cadJob)+')');
+ assert.equal(points.length,3);assert.equal(points[2],'Erfarenhet av ritningsarbete i AutoCAD');
+ assert(!points[0].includes('AutoCAD'));
+ const concrete=run('demoLetter({title:"Betongarbetare",company:"Test AB",description:"Betongkonstruktioner och produktion"})');
+ assert(!concrete.includes('AutoCAD'));
+ run('setDemoEditor('+JSON.stringify(cadJob)+',"Min egen text",null)');
+ run('refreshDemoLetter()');assert.equal(el('body').value,'Min egen text');
+ resetApproval=true;run('refreshDemoLetter()');assert.equal(el('body').value,cadLetter);resetApproval=false;
  const job={id:'31451515',title:'Betongarbetare',company:'Test AB',city:'Halmstad',description:'Byggarbete med säkra lyft och HLR',license_status:'not_required',employment_extent:'full_time',priority:1,match_score:60,application:{type:'external',url:'https://employer.invalid/apply'}};
  const second={...job,id:'22222222',title:'Andra jobbet',priority:2};const spare={...job,id:'33333333',title:'Nytt ersättningsjobb',priority:3};
  run('allCandidates='+JSON.stringify([job,second,spare])+';jobs='+JSON.stringify([job,second]));
