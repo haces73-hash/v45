@@ -85,7 +85,26 @@ vm.createContext(ctx);vm.runInContext(script,ctx);const run=s=>vm.runInContext(s
  run('renderHistory()');assert(!el('historyItems').innerHTML.includes('old-test'));
  assert(!html.includes('id="locationDiagnostics"'));assert(!html.includes('id="licenseDiagnostics"'));
  assert(!html.includes('onclick="createRemovedAdTest()"'));
+ // Search indicator follows real request completion, including errors and overlaps.
+ let completeSearch;
+ ctx.fetch=()=>new Promise(resolve=>{completeSearch=resolve});
+ const searching=run('loadJobs(true)');
+ assert.equal(el('searchLoading').hidden,false);
+ assert(el('searchLoadingText').textContent.includes('Halmstad'));
+ assert.equal(el('jobs').ariaBusy,'true');
+ completeSearch({ok:true,json:async()=>({jobs:[],needs_review:[]})});await searching;
+ assert.equal(el('searchLoading').hidden,true);assert.equal(el('jobs').ariaBusy,'false');
+ ctx.fetch=async()=>{throw Error('offline')};await run('loadJobs(true)');
+ assert.equal(el('searchLoading').hidden,true);assert(el('status').textContent.includes('Kunde inte'));
+ const pending=[];ctx.fetch=()=>new Promise(resolve=>pending.push(resolve));
+ const first=run('loadJobs(true)');el('city').value='Falkenberg';const latest=run('loadJobs(true)');
+ pending[0]({ok:true,json:async()=>({jobs:[]})});await first;
+ assert.equal(el('searchLoading').hidden,false);assert(el('searchLoadingText').textContent.includes('Falkenberg'));
+ pending[1]({ok:true,json:async()=>({jobs:[]})});await latest;
+ assert.equal(el('searchLoading').hidden,true);
+ await run('loadJobs()');assert.equal(el('searchLoading').hidden,true);
  console.log('PASS: save hides job without refill; history reopens exact letter and job; active/deleted/offline differentiated; no employer calls; failed save keeps job/text.');
 })().catch(e=>{console.error(e);process.exitCode=1});
+
 
 
