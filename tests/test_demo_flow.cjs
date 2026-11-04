@@ -48,8 +48,19 @@ vm.createContext(ctx);vm.runInContext(script,ctx);const run=s=>vm.runInContext(s
  assert.equal(data.get('test-search-cache'),'keep');
  assert.equal(JSON.parse(data.get('king-declines-v24'))['declined-job'],1);
  assert(run('jobs.some(j=>j.id==="31451515")'));
- assert(!run('jobs.some(j=>j.id==="33333333")'));
+ assert(run('jobs.some(j=>j.id==="33333333")'));
  assert.equal(el('body').value,'');
  assert(el('historyResetStatus').textContent.includes('nollställd'));
+ // The daily shortlist was created while the saved construction job was hidden.
+ const ref={...job,license_status:'optional',license:'API-UPPGIFT AVVIKER',building_possible_match:true,priority:2,description:'Byggarbete med HLR och säkra lyft. '.repeat(3)};
+ const industry=Array.from({length:5},(_,i)=>({...second,id:String(40000000+i),priority:4,match_score:40-i}));
+ run('allCandidates='+JSON.stringify(industry)+';reviewCandidates='+JSON.stringify([ref])+';history=[]');
+ data.set('jobb4kevin-demo-applications-v1','[]');
+ data.set(run('SHORTLIST_KEY'),JSON.stringify({[key]:industry.map(x=>x.id)}));
+ run('selectBestFive()');
+ assert(!run('jobs.some(j=>j.id==="31451515")')); // Ordinary refresh keeps the fixed list.
+ run('resetApplicationHistory()');
+ assert.equal(run('jobs[0].id'),'31451515');
+ assert.equal(run('jobs.length'),5);
  console.log('PASS: save hides job without refill; history reopens exact letter and job; active/deleted/offline differentiated; no employer calls; failed save keeps job/text.');
 })().catch(e=>{console.error(e);process.exitCode=1});
