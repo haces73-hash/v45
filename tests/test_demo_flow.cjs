@@ -103,8 +103,16 @@ vm.createContext(ctx);vm.runInContext(script,ctx);const run=s=>vm.runInContext(s
  pending[1]({ok:true,json:async()=>({jobs:[]})});await latest;
  assert.equal(el('searchLoading').hidden,true);
  await run('loadJobs()');assert.equal(el('searchLoading').hidden,true);
+ run('reviewCandidates=[];renderReviewJobs()');assert.equal(el('reviewSection').hidden,true);
+ const reviewJob={id:'review-only-123',title:'Kontrolljobb',company:'Test',description:'',license_status:'optional',employment_extent:'full_time'};
+ run('reviewCandidates='+JSON.stringify([reviewJob])+';renderReviewJobs()');assert.equal(el('reviewSection').hidden,false);
+ assert(el('reviewCount').textContent.includes('1 extra annons'));
+ el('reviewSection').open=true;
+ run('declineReview(0)');assert.equal(el('reviewSection').hidden,true);assert.equal(el('reviewSection').open,false);
+ assert(html.includes('BEHÖVER KONTROLLERAS INNAN ANSÖKAN'));
  console.log('PASS: save hides job without refill; history reopens exact letter and job; active/deleted/offline differentiated; no employer calls; failed save keeps job/text.');
 })().catch(e=>{console.error(e);process.exitCode=1});
+
 
 
 
