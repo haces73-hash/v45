@@ -78,27 +78,14 @@ vm.createContext(ctx);vm.runInContext(script,ctx);const run=s=>vm.runInContext(s
  run('resetApplicationHistory()');
  assert.equal(run('jobs[0].id'),'31451515');
  assert.equal(run('jobs.length'),5);
- const originalDemos=data.get('jobb4kevin-demo-applications-v1'), originalShortlist=data.get(run('SHORTLIST_KEY'));
- const originalJobs=run('JSON.stringify(jobs)');
- denySave=true;run('createRemovedAdTest()');assert.equal(data.get('jobb4kevin-demo-applications-v1'),originalDemos);denySave=false;
- run('createRemovedAdTest()');run('createRemovedAdTest()');
- assert.equal(run('readDemoApplications().filter(x=>x.isTest).length'),1);
- assert(!run('appliedJobIds().has("31464926")'));
- assert.equal(run('JSON.stringify(jobs)'),originalJobs);
- assert.equal(data.get(run('SHORTLIST_KEY')),originalShortlist);
- const testLetter=run('readDemoApplications().find(x=>x.isTest).letter');
- availability='removed';run('openSavedDemo(REMOVED_AD_TEST_ID)');await run('checkSavedAdStatus(draft,demoStatusToken)');
- assert(requests.at(-1).endsWith('31464926'));
- assert(el('demoOriginalStatus').textContent.includes('borttagen'));
- assert(el('demoSavedJobText').textContent.includes('PÅHITTAD ANNONSTEXT'));
- assert.equal(el('body').value,testLetter);
- run('saveDemoApplication()');assert(run('readDemoApplications().find(x=>x.demoId===REMOVED_AD_TEST_ID).isTest'));
- availability='network_error';run('openSavedDemo(REMOVED_AD_TEST_ID)');await run('checkSavedAdStatus(draft,demoStatusToken)');
- assert(el('demoOriginalStatus').textContent.includes('kunde inte kontrolleras'));
- assert.equal(el('body').value,testLetter);
- run('removeRemovedAdTest()');assert.equal(run('readDemoApplications().filter(x=>x.isTest).length'),0);
- assert.equal(data.get('jobb4kevin-demo-applications-v1'),originalDemos);
- assert.equal(run('JSON.stringify(jobs)'),originalJobs);
+ const savedDemos=data.get('jobb4kevin-demo-applications-v1');
+ const visibleCount=run('readDemoApplications().length');
+ data.set('jobb4kevin-demo-applications-v1',JSON.stringify([...JSON.parse(savedDemos),{demoId:'old-test',isTest:true,job:{id:'31464926'},letter:'Test'}]));
+ assert.equal(run('readDemoApplications().length'),visibleCount);
+ run('renderHistory()');assert(!el('historyItems').innerHTML.includes('old-test'));
+ assert(!html.includes('id="locationDiagnostics"'));assert(!html.includes('id="licenseDiagnostics"'));
+ assert(!html.includes('onclick="createRemovedAdTest()"'));
  console.log('PASS: save hides job without refill; history reopens exact letter and job; active/deleted/offline differentiated; no employer calls; failed save keeps job/text.');
 })().catch(e=>{console.error(e);process.exitCode=1});
+
 
