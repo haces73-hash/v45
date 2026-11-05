@@ -3,6 +3,8 @@ from collections import defaultdict
 from flask import Flask, jsonify, request, send_from_directory
 import requests
 app=Flask(__name__,static_folder='static')
+from gmail_connection import register_gmail
+register_gmail(app)
 # Prevent concurrent expensive searches from saturating the small Render instance.
 _search_gate=threading.BoundedSemaphore(value=1)
 CITIES={'Halmstad':(56.6745,12.8568),'Falkenberg':(56.9055,12.4912),'Varberg':(57.1056,12.2508),'Göteborg':(57.7089,11.9746),'Helsingborg':(56.0465,12.6945)}
@@ -1918,3 +1920,4 @@ def _v50_no_cache(response):
   response.headers['Pragma']='no-cache'
   response.headers['Expires']='0'
  return response
+
