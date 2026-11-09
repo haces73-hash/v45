@@ -6,6 +6,7 @@ import os
 import secrets
 import sqlite3
 import time
+from contextlib import contextmanager
 from email.message import EmailMessage
 from pathlib import Path
 from urllib.parse import urlencode
@@ -21,24 +22,49 @@ def register_gmail(app):
     app.config.update(SESSION_COOKIE_SECURE=True, SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE='Lax')
 
     def ready():
-        return all(os.environ.get(k) for k in ('FLASK_SECRET_KEY', 'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_REDIRECT_URI', 'GMAIL_TOKEN_KEY', 'GMAIL_DB_PATH')) and os.environ['GOOGLE_REDIRECT_URI'].startswith('https://')
+        return all(os.environ.get(k) for k in ('FLASK_SECRET_KEY', 'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_REDIRECT_URI', 'GMAIL_TOKEN_KEY')) and bool(os.environ.get('GMAIL_DATABASE_URL') or os.environ.get('GMAIL_DB_PATH')) and os.environ['GOOGLE_REDIRECT_URI'].startswith('https://')
 
+    @contextmanager
     def db():
-        con = sqlite3.connect(os.environ['GMAIL_DB_PATH'])
-        con.execute('CREATE TABLE IF NOT EXISTS gmail (id TEXT PRIMARY KEY, payload BLOB NOT NULL)')
-        return con
+        url = os.environ.get('GMAIL_DATABASE_URL')
+        if url:
+            import psycopg
+            from psycopg.conninfo import conninfo_to_dict
+            settings = conninfo_to_dict(url)
+            mode = settings.get('sslmode', 'require')
+            if mode not in ('require', 'verify-ca', 'verify-full'):
+                raise ValueError('TLS required')
+            con = psycopg.connect(url, sslmode=mode, connect_timeout=10,
+                                  options='-c statement_timeout=10000')
+            schema = 'CREATE TABLE IF NOT EXISTS gmail (id TEXT PRIMARY KEY, payload BYTEA NOT NULL)'
+        else:
+            con = sqlite3.connect(os.environ['GMAIL_DB_PATH'])
+            schema = 'CREATE TABLE IF NOT EXISTS gmail (id TEXT PRIMARY KEY, payload BLOB NOT NULL)'
+        try:
+            con.execute(schema)
+            yield con
+            con.commit()
+        except Exception:
+            con.rollback()
+            raise
+        finally:
+            con.close()
+
+    def query(con, sql, args):
+        # Both drivers bind parameters; credentials and IDs never enter SQL text.
+        return con.execute(sql.replace('?', '%s') if os.environ.get('GMAIL_DATABASE_URL') else sql, args)
 
     def read():
         if not ready() or not session.get('gmail_id'):
             return None
         with db() as con:
-            row = con.execute('SELECT payload FROM gmail WHERE id=?', (session['gmail_id'],)).fetchone()
+            row = query(con, 'SELECT payload FROM gmail WHERE id=?', (session['gmail_id'],)).fetchone()
         return json.loads(Fernet(os.environ['GMAIL_TOKEN_KEY']).decrypt(row[0])) if row else None
 
     def write(value):
         payload = Fernet(os.environ['GMAIL_TOKEN_KEY']).encrypt(json.dumps(value).encode())
         with db() as con:
-            con.execute('INSERT OR REPLACE INTO gmail VALUES (?,?)', (session['gmail_id'], payload))
+            query(con, 'INSERT INTO gmail (id,payload) VALUES (?,?) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload', (session['gmail_id'], payload))
 
     def csrf_ok():
         token = session.get('gmail_csrf', '')
@@ -98,7 +124,7 @@ def register_gmail(app):
                 response = requests.post('https://oauth2.googleapis.com/revoke', data={'token': account['refresh_token']}, timeout=15)
                 response.raise_for_status()
                 with db() as con:
-                    con.execute('DELETE FROM gmail WHERE id=?', (session['gmail_id'],))
+                    query(con, 'DELETE FROM gmail WHERE id=?', (session['gmail_id'],))
             session.pop('gmail_id', None)
             return jsonify(disconnected=True)
         except Exception:
@@ -132,3 +158,4 @@ def register_gmail(app):
         except Exception:
             # Never retry a send automatically: provider acceptance may be uncertain.
             return jsonify(error='Sändningen kunde inte bekräftas. Kontrollera Skickat i Gmail innan du försöker igen.'), 502
+
