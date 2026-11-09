@@ -49,4 +49,38 @@ class GmailTests(unittest.TestCase):
  def test_missing_csrf_denied(self):
   self.assertEqual(self.client.post('/api/gmail/send-test',json={}).status_code,403)
 
+
+
+
+class PostgresGmailTests(GmailTests):
+ def setUp(self):
+  super().setUp()
+  self.pg_env=patch.dict(os.environ,{'GMAIL_DATABASE_URL':'postgresql://test:password@host/test?sslmode=require','GMAIL_DB_PATH':''});self.pg_env.start()
+  import sqlite3
+  self.calls=[]
+  owner=self
+  class Adapter:
+   def __init__(self):self.con=sqlite3.connect(owner.tmp.name+'/pg-adapter.sqlite')
+   def execute(self,sql,args=()):
+    owner.calls.append(sql)
+    return self.con.execute(sql.replace('%s','?'),args)
+   def commit(self):self.con.commit()
+   def rollback(self):self.con.rollback()
+   def close(self):self.con.close()
+  self.pg=patch('psycopg.connect',side_effect=lambda *a,**k:Adapter());self.pg.start()
+ def tearDown(self):self.pg.stop();self.pg_env.stop();super().tearDown()
+ def test_connection_isolated_encrypted_and_disconnect(self):
+  csrf=self.connect()
+  self.assertTrue(self.client.get('/api/gmail/status').json['connected'])
+  self.assertFalse(self.app.test_client().get('/api/gmail/status').json['connected'])
+  self.assertNotIn(b'refresh-secret',Path(self.tmp.name+'/pg-adapter.sqlite').read_bytes())
+  self.assertTrue(any('BYTEA' in x for x in self.calls))
+  self.assertTrue(any('id=%s' in x for x in self.calls))
+  with patch('gmail_connection.requests.post',return_value=self.response({})):
+   self.assertTrue(self.client.post('/api/gmail/disconnect',headers={'X-Gmail-CSRF':csrf}).json['disconnected'])
+ def test_tls_required(self):
+  self.connect()
+  with patch.dict(os.environ,{'GMAIL_DATABASE_URL':'postgresql://test:password@host/test?sslmode=disable'}):
+   self.assertEqual(self.client.get('/api/gmail/status').status_code,503)
+
 if __name__=='__main__':unittest.main()
