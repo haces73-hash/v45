@@ -1,6 +1,8 @@
 """Per-browser Gmail OAuth connection; outbound demo mail is recipient-locked."""
 import base64
 import hashlib
+import html
+import re
 import json
 import os
 import secrets
@@ -16,6 +18,26 @@ from flask import jsonify, redirect, request, session
 
 SCOPE = 'openid email https://www.googleapis.com/auth/gmail.send'
 TEST_RECIPIENT = 'haces@hotmail.com'
+
+def letter_html(text):
+    # Paragraphs flow with the recipient's viewport; lists keep separate items.
+    blocks = re.split(r'\n\s*\n', text.replace('\r\n', '\n').strip())
+    rendered = []
+    for block in blocks:
+        lines = [line.strip() for line in block.split('\n') if line.strip()]
+        chunks, paragraph = [], []
+        for line in lines:
+            if line.startswith(('• ', '- ')):
+                if paragraph:
+                    chunks.append('<p>'+html.escape(' '.join(paragraph))+'</p>')
+                    paragraph = []
+                chunks.append('<p style="margin:4px 0 4px 16px">'+html.escape(line)+'</p>')
+            else:
+                paragraph.append(line)
+        if paragraph:
+            chunks.append('<p>'+html.escape(' '.join(paragraph))+'</p>')
+        rendered.append(''.join(chunks))
+    return '<html><body><div style="font-family:Arial,sans-serif;font-size:16px;line-height:1.5;max-width:640px;overflow-wrap:anywhere">' + ''.join(rendered) + '</div></body></html>'
 
 def register_gmail(app):
     app.secret_key = os.environ.get('FLASK_SECRET_KEY') or secrets.token_hex(32)
@@ -164,7 +186,9 @@ def register_gmail(app):
             message = EmailMessage()
             message['To'], message['From'] = TEST_RECIPIENT, account['email']
             message['Subject'] = 'TESTANSÖKAN – '+title
-            message.set_content('TEST – skickad för granskning, ingen ansökan till arbetsgivare.\n\n'+letter.strip())
+            mail_text = 'TEST – skickad för granskning, ingen ansökan till arbetsgivare.\n\n'+letter.strip()
+            message.set_content(mail_text, cte='base64')
+            message.add_alternative(letter_html(mail_text), subtype='html', cte='base64')
             pdf = Path(app.static_folder)/'Kevin_Martini_CV.pdf'
             message.add_attachment(pdf.read_bytes(), maintype='application', subtype='pdf', filename='Kevin_Martini_CV.pdf')
             result = requests.post('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', headers={'Authorization': 'Bearer '+response.json()['access_token']}, json={'raw': base64.urlsafe_b64encode(message.as_bytes()).decode()}, timeout=20)
