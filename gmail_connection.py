@@ -11,7 +11,7 @@ from email.message import EmailMessage
 from pathlib import Path
 from urllib.parse import urlencode
 import requests
-from cryptography.fernet import Fernet
+from cryptography.fernet import Fernet, InvalidToken
 from flask import jsonify, redirect, request, session
 
 SCOPE = 'openid email https://www.googleapis.com/auth/gmail.send'
@@ -34,13 +34,14 @@ def register_gmail(app):
             mode = settings.get('sslmode', 'require')
             if mode not in ('require', 'verify-ca', 'verify-full'):
                 raise ValueError('TLS required')
-            con = psycopg.connect(url, sslmode=mode, connect_timeout=10,
-                                  options='-c statement_timeout=10000')
+            con = psycopg.connect(url, sslmode=mode, connect_timeout=15)
             schema = 'CREATE TABLE IF NOT EXISTS gmail (id TEXT PRIMARY KEY, payload BYTEA NOT NULL)'
         else:
             con = sqlite3.connect(os.environ['GMAIL_DB_PATH'])
             schema = 'CREATE TABLE IF NOT EXISTS gmail (id TEXT PRIMARY KEY, payload BLOB NOT NULL)'
         try:
+            if url:
+                con.execute("SELECT set_config('statement_timeout', '10000', true)")
             con.execute(schema)
             yield con
             con.commit()
@@ -70,20 +71,32 @@ def register_gmail(app):
         token = session.get('gmail_csrf', '')
         return bool(token) and secrets.compare_digest(token, request.headers.get('X-Gmail-CSRF', ''))
 
+    def connection_error(exc, stage='storage'):
+        if isinstance(exc, InvalidToken):
+            code, message = 'gmail_token_key', 'Den sparade Gmail-anslutningen kan inte dekrypteras. Kontrollera att GMAIL_TOKEN_KEY är oförändrad och anslut Gmail igen.'
+        elif isinstance(exc, (ValueError, TypeError)):
+            code, message = 'gmail_config', 'Gmail-inställningen eller krypteringsnyckeln är ogiltig. Kontrollera serverinställningarna.'
+        else:
+            code = 'gmail_database' if stage == 'storage' else 'gmail_google'
+            message = 'Databasen kunde inte nås eller användas. Kontrollera GMAIL_DATABASE_URL och databasens åtkomst.' if stage == 'storage' else 'Google-anslutningen kunde inte slutföras. Starta en ny anslutning.'
+        app.logger.warning('Gmail connection failure: code=%s stage=%s type=%s', code, stage, type(exc).__name__)
+        return dict(code=code, error=message)
+
     @app.get('/api/gmail/status')
     def gmail_status():
         session.permanent = True
         session.setdefault('gmail_csrf', secrets.token_urlsafe(32))
         try:
             account = read()
-            return jsonify(configured=ready(), connected=bool(account), email=account.get('email') if account else None, csrf=session['gmail_csrf'])
-        except Exception:
-            return jsonify(configured=False, connected=False, error='Anslutningen kunde inte läsas.'), 503
+            return jsonify(configured=ready(), connected=bool(account), email=account.get('email') if account else None, csrf=session['gmail_csrf'], **({} if account else session.get('gmail_error', {})))
+        except Exception as exc:
+            return jsonify(configured=ready(), connected=False, csrf=session['gmail_csrf'], **connection_error(exc)), 503
 
     @app.get('/auth/gmail/start')
     def gmail_start():
         if not ready():
             return redirect('/?gmail=not_configured')
+        session.pop('gmail_error', None)
         state = secrets.token_urlsafe(32)
         verifier = secrets.token_urlsafe(64)
         session['gmail_oauth'] = {'state': state, 'verifier': verifier, 'at': time.time()}
@@ -97,6 +110,7 @@ def register_gmail(app):
             return redirect('/?gmail=failed')
         if request.args.get('error') or not request.args.get('code'):
             return redirect('/?gmail=cancelled')
+        stage = 'google'
         try:
             response = requests.post('https://oauth2.googleapis.com/token', data=dict(client_id=os.environ['GOOGLE_CLIENT_ID'], client_secret=os.environ['GOOGLE_CLIENT_SECRET'], code=request.args['code'], code_verifier=pending['verifier'], redirect_uri=os.environ['GOOGLE_REDIRECT_URI'], grant_type='authorization_code'), timeout=15)
             response.raise_for_status()
@@ -109,9 +123,12 @@ def register_gmail(app):
             if not identity.get('email_verified'):
                 raise ValueError('Unverified email')
             session.setdefault('gmail_id', secrets.token_urlsafe(32))
+            stage = 'storage'
             write(dict(refresh_token=tokens['refresh_token'], email=identity['email']))
+            session.pop('gmail_error', None)
             return redirect('/?gmail=connected')
-        except Exception:
+        except Exception as exc:
+            session['gmail_error'] = connection_error(exc, stage)
             return redirect('/?gmail=failed')
 
     @app.post('/api/gmail/disconnect')
@@ -158,4 +175,5 @@ def register_gmail(app):
         except Exception:
             # Never retry a send automatically: provider acceptance may be uncertain.
             return jsonify(error='Sändningen kunde inte bekräftas. Kontrollera Skickat i Gmail innan du försöker igen.'), 502
+
 

@@ -57,17 +57,20 @@ class PostgresGmailTests(GmailTests):
   super().setUp()
   self.pg_env=patch.dict(os.environ,{'GMAIL_DATABASE_URL':'postgresql://test:password@host/test?sslmode=require','GMAIL_DB_PATH':''});self.pg_env.start()
   import sqlite3
-  self.calls=[]
+  self.calls=[];self.connect_options=[]
   owner=self
   class Adapter:
    def __init__(self):self.con=sqlite3.connect(owner.tmp.name+'/pg-adapter.sqlite')
    def execute(self,sql,args=()):
     owner.calls.append(sql)
+    if sql.startswith('SELECT set_config'):return self.con.execute('SELECT 1')
     return self.con.execute(sql.replace('%s','?'),args)
    def commit(self):self.con.commit()
    def rollback(self):self.con.rollback()
    def close(self):self.con.close()
-  self.pg=patch('psycopg.connect',side_effect=lambda *a,**k:Adapter());self.pg.start()
+  def connect(*a,**k):
+   self.connect_options.append(k);return Adapter()
+  self.pg=patch('psycopg.connect',side_effect=connect);self.pg.start()
  def tearDown(self):self.pg.stop();self.pg_env.stop();super().tearDown()
  def test_connection_isolated_encrypted_and_disconnect(self):
   csrf=self.connect()
@@ -83,4 +86,17 @@ class PostgresGmailTests(GmailTests):
   with patch.dict(os.environ,{'GMAIL_DATABASE_URL':'postgresql://test:password@host/test?sslmode=disable'}):
    self.assertEqual(self.client.get('/api/gmail/status').status_code,503)
 
+class GmailFailureTests(GmailTests):
+ def test_database_error_is_actionable(self):
+  self.connect()
+  with patch('gmail_connection.sqlite3.connect',side_effect=OSError('secret-password-must-not-leak')):
+   r=self.client.get('/api/gmail/status')
+  self.assertEqual(r.status_code,503);self.assertEqual(r.json['code'],'gmail_database')
+  self.assertNotIn('secret-password',str(r.json));self.assertTrue(r.json['configured'])
+ def test_changed_key_is_distinct(self):
+  self.connect()
+  with patch.dict(os.environ,{'GMAIL_TOKEN_KEY':Fernet.generate_key().decode()}):
+   self.assertEqual(self.client.get('/api/gmail/status').json['code'],'gmail_token_key')
+
 if __name__=='__main__':unittest.main()
+
