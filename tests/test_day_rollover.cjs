@@ -23,10 +23,13 @@ function boot(){const els=new Map();function el(id){if(!els.has(id))els.set(id,{
  assert(app.el('lastSearch').textContent.includes('5 nov. 2026'));
  app=boot();await app.run('loadJobs()');assert.equal(calls,2);
  assert(!app.run('jobs.some(j=>j.id==="80000000")'));assert.equal(app.run('readDemoApplications()[0].letter'),'Mitt sparade brev');
- // Established rule: third dismissal blocks permanently, not merely for one day.
- app.run('declines["80000002"]=3;declineDays["80000002"]="2026-11-01";saveDeclines()');
+ // Two dismissals on different Swedish days block permanently.
+ app.run('declineJob({id:"80000001"});declineJob({id:"80000001"})');
+ assert.equal(app.run('declines["80000001"]'),2); // Same-day repeat does not count twice.
+ app.run('declines["80000002"]=2;declineDays["80000002"]="2026-11-01";saveDeclines()');
  clock='2026-11-05T23:01:00Z';app=boot();await app.run('loadJobs()');assert.equal(calls,3);
  assert(!app.run('jobs.some(j=>j.id==="80000002")'));
+ assert(!app.run('jobs.some(j=>j.id==="80000001")'));
  assert(!app.run('jobs.some(j=>j.id==="80000000")'));
- console.log('PASS: Swedish midnight triggers one new search; same-day cache reused; shortlist renewed without new ads; applied job stays excluded; previous-day decline returns; saved letter persists after reboot; third decline stays excluded.');
+ console.log('PASS: Swedish midnight triggers one new search; same-day cache reused; shortlist renewed without new ads; applied job stays excluded; previous-day decline returns; saved letter persists after reboot; second decline stays excluded.');
 })().catch(e=>{console.error(e);process.exitCode=1});
