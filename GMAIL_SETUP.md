@@ -1,3 +1,5 @@
+> **Render Free, B 1.15:** Följ [FREE_GMAIL_SETUP.md](FREE_GMAIL_SETUP.md) för extern PostgreSQL utan betald Render-disk. Diskstegen nedan gäller bara det äldre SQLite-alternativet.
+
 # Gmail-test och första start (B 1.14)
 
 Koden kräver Google-konfiguration innan Gmail kan anslutas. Appens vanliga demo fungerar utan den. Inga Google-hemligheter ska läggas i GitHub eller skickas i chatt.
