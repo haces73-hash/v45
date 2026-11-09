@@ -110,6 +110,21 @@ vm.createContext(ctx);vm.runInContext(script,ctx);const run=s=>vm.runInContext(s
  el('reviewSection').open=true;
  run('declineReview(0)');assert.equal(el('reviewSection').hidden,true);assert.equal(el('reviewSection').open,false);
  assert(html.includes('BEHÖVER KONTROLLERAS INNAN ANSÖKAN'));
+ const mailJob={...job,id:'test-mail-998',application:{type:'external',url:'https://example.com/apply'}};
+ run('jobs='+JSON.stringify([mailJob])+';allCandidates='+JSON.stringify([mailJob])+';prepare(0)');
+ assert(el('applicationGuidance').textContent.includes('externa webbplats'));
+ el('body').value='Exakt utskickat brev';resetApproval=true;
+ let sentCalls=0;
+ ctx.fetch=async url=>{if(url==='/api/gmail/status')return {ok:true,json:async()=>({configured:true,connected:true,email:'test@gmail.com',csrf:'fresh'})};assert.equal(url,'/api/gmail/send-test');sentCalls++;return {ok:true,json:async()=>({sent:true,recipient:'haces@hotmail.com'})}};
+ await run('sendGmailTest()');
+ assert.equal(sentCalls,1);assert(!run('jobs.some(j=>j.id==="test-mail-998")'));
+ assert.equal(run('readDemoApplications().find(x=>x.job.id==="test-mail-998").letter'),'Exakt utskickat brev');
+ assert.equal(run('readDemoApplications().find(x=>x.job.id==="test-mail-998").status'),'test_sent');
+ assert(el('historyItems').innerHTML.includes('TEST SKICKAT TILL'));
+ const beforeFailed=run('readDemoApplications().length');
+ run('jobs='+JSON.stringify([{...mailJob,id:'failed-mail-999'}])+';prepare(0)');
+ ctx.fetch=async url=>url==='/api/gmail/status'?{ok:true,json:async()=>({connected:true,csrf:'fresh'})}:{ok:false,json:async()=>({error:'Failed'})};
+ await run('sendGmailTest()');assert.equal(run('readDemoApplications().length'),beforeFailed);assert.equal(run('jobs[0].id'),'failed-mail-999');
  console.log('PASS: save hides job without refill; history reopens exact letter and job; active/deleted/offline differentiated; no employer calls; failed save keeps job/text.');
 })().catch(e=>{console.error(e);process.exitCode=1});
 
