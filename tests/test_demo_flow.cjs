@@ -125,8 +125,20 @@ vm.createContext(ctx);vm.runInContext(script,ctx);const run=s=>vm.runInContext(s
  run('jobs='+JSON.stringify([{...mailJob,id:'failed-mail-999'}])+';prepare(0)');
  ctx.fetch=async url=>url==='/api/gmail/status'?{ok:true,json:async()=>({connected:true,csrf:'fresh'})}:{ok:false,json:async()=>({error:'Failed'})};
  await run('sendGmailTest()');assert.equal(run('readDemoApplications().length'),beforeFailed);assert.equal(run('jobs[0].id'),'failed-mail-999');
+ const ext={...job,id:'external-101',application:{type:'external',url:'https://example.com/apply'}};
+ run('jobs='+JSON.stringify([ext])+';allCandidates='+JSON.stringify([ext])+';prepare(0)');
+ assert.equal(el('externalApplication').hidden,false);assert.equal(el('externalApplicationLink').href,ext.application.url);
+ const count=run('readDemoApplications().length');assert.equal(run('jobs.length'),1);
+ resetApproval=false;run('confirmExternalApplication()');assert.equal(run('readDemoApplications().length'),count);assert.equal(run('jobs.length'),1);
+ resetApproval=true;el('body').value='Brevunderlag';run('confirmExternalApplication()');
+ assert.equal(run('readDemoApplications().find(x=>x.job.id==="external-101").status'),'external_applied');
+ assert.equal(run('jobs.length'),0);assert(el('historyItems').innerHTML.includes('ANSÖKT VIA WEBBPLATS'));
+ run('openSavedDemoAt(0)');assert.equal(el('confirmExternalButton').disabled,true);
+ assert.equal(run('externalApplicationUrl({application:{type:"external",url:"javascript:alert(1)"}})'),null);
+ assert.equal(run('externalApplicationUrl({application:{type:"email",url:"https://example.com"}})'),null);
  console.log('PASS: save hides job without refill; history reopens exact letter and job; active/deleted/offline differentiated; no employer calls; failed save keeps job/text.');
 })().catch(e=>{console.error(e);process.exitCode=1});
+
 
 
 
