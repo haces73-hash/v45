@@ -138,8 +138,8 @@ vm.createContext(ctx);vm.runInContext(script,ctx);const run=s=>vm.runInContext(s
  assert.equal(run('externalApplicationUrl({application:{type:"email",url:"https://example.com"}})'),null);
  let reviewSends=0;
  ctx.fetch=async url=>{if(url==='/api/gmail/status')return {ok:true,json:async()=>({configured:true,connected:true,email:'kevin@example.com',csrf:'token'})};reviewSends++;return {ok:true,json:async()=>({sent:true,recipient:'haces@hotmail.com'})}};
- const reviewJob={...job,id:'review-mail-final',application:{type:'email',email:'employer@example.com'}};
- run('jobs='+JSON.stringify([reviewJob])+';allCandidates='+JSON.stringify([reviewJob])+';prepare(0)');
+ const finalReviewJob={...job,id:'review-mail-final',application:{type:'email',email:'employer@example.com'}};
+ run('jobs='+JSON.stringify([finalReviewJob])+';allCandidates='+JSON.stringify([finalReviewJob])+';prepare(0)');
  el('body').value='Mitt granskade brev <tag>';
  await run('sendGmailTest()');assert.equal(reviewSends,0);
  assert.equal(el('reviewSender').textContent,'kevin@example.com');
