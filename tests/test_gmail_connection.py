@@ -98,5 +98,23 @@ class GmailFailureTests(GmailTests):
   with patch.dict(os.environ,{'GMAIL_TOKEN_KEY':Fernet.generate_key().decode()}):
    self.assertEqual(self.client.get('/api/gmail/status').json['code'],'gmail_token_key')
 
+class LetterHtmlTests(unittest.TestCase):
+ def test_signature_keeps_name_on_next_line(self):
+  from gmail_connection import letter_html
+  result=letter_html('Hej!\n\nJag vill utvecklas vidare hos\ner.\n\nMed vänliga hälsningar\nKevin Martini Test 2')
+  self.assertIn('<p>Jag vill utvecklas vidare hos er.</p>',result)
+  self.assertIn('<p>Med vänliga hälsningar<br>Kevin Martini Test 2</p>',result)
+ def test_signature_escapes_user_text(self):
+  from gmail_connection import letter_html
+  result=letter_html('Med vänliga hälsningar,\r\nKevin <script>\r\nKontakt')
+  self.assertIn('hälsningar,<br>Kevin &lt;script&gt;<br>Kontakt',result)
+  self.assertNotIn('<script>',result)
+ def test_prose_list_and_cv_reminder(self):
+  from gmail_connection import letter_html
+  result=letter_html('För tjänsten:\n• AutoCAD\n• Produktion\n\nSe även bifogat CV.')
+  self.assertIn('<p>För tjänsten:</p>',result)
+  self.assertIn('• AutoCAD</p>',result)
+  self.assertIn('<p>Se även bifogat CV.</p>',result)
+
 if __name__=='__main__':unittest.main()
 
