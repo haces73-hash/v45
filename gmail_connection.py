@@ -19,6 +19,9 @@ from flask import jsonify, redirect, request, session
 SCOPE = 'openid email https://www.googleapis.com/auth/gmail.send'
 TEST_RECIPIENT = 'haces@hotmail.com'
 
+def mail_mode():
+    return 'live' if os.environ.get('GMAIL_SEND_MODE', '').strip().lower() == 'live' else 'test'
+
 def letter_html(text):
     # Paragraphs flow with the recipient's viewport; lists keep separate items.
     blocks = re.split(r'\n\s*\n', text.replace('\r\n', '\n').strip())
@@ -158,9 +161,9 @@ def register_gmail(app):
         session.setdefault('gmail_csrf', secrets.token_urlsafe(32))
         try:
             account = read()
-            return jsonify(configured=ready(), connected=bool(account), email=account.get('email') if account else None, csrf=session['gmail_csrf'], **({} if account else session.get('gmail_error', {})))
+            return jsonify(mode=mail_mode(), configured=ready(), connected=bool(account), email=account.get('email') if account else None, csrf=session['gmail_csrf'], **({} if account else session.get('gmail_error', {})))
         except Exception as exc:
-            return jsonify(configured=ready(), connected=False, csrf=session['gmail_csrf'], **connection_error(exc)), 503
+            return jsonify(mode=mail_mode(), configured=ready(), connected=False, csrf=session['gmail_csrf'], **connection_error(exc)), 503
 
     @app.get('/auth/gmail/start')
     def gmail_start():
@@ -229,13 +232,19 @@ def register_gmail(app):
             account = read()
             if not account:
                 return jsonify(error='Anslut Gmail först.'), 401
+            mode = mail_mode()
+            if body.get('send_mode', 'test') != mode:
+                return jsonify(error='Sändningsläget har ändrats. Gå tillbaka och granska på nytt.'), 409
+            if mode == 'live' and (not isinstance(body.get('reviewed_sender'), str) or body['reviewed_sender'].casefold() != account['email'].casefold()):
+                return jsonify(error='Avsändaren har ändrats. Granska ansökan på nytt.'), 409
             verified_email = validate_recipient(body.get('job_id'), body.get('reviewed_email'))
             response = requests.post('https://oauth2.googleapis.com/token', data=dict(client_id=os.environ['GOOGLE_CLIENT_ID'], client_secret=os.environ['GOOGLE_CLIENT_SECRET'], refresh_token=account['refresh_token'], grant_type='refresh_token'), timeout=15)
             response.raise_for_status()
             message = EmailMessage()
-            message['To'], message['From'] = TEST_RECIPIENT, account['email']
-            message['Subject'] = 'TESTANSÖKAN – '+title
-            mail_text = 'TEST – skickad för granskning, ingen ansökan till arbetsgivare.\n\n'+letter.strip()
+            recipient = verified_email if mode == 'live' else TEST_RECIPIENT
+            message['To'], message['From'] = recipient, account['email']
+            message['Subject'] = ('Ansökan – ' if mode == 'live' else 'TESTANSÖKAN – ')+title
+            mail_text = letter.strip() if mode == 'live' else 'TEST – skickad för granskning, ingen ansökan till arbetsgivare.\n\n'+letter.strip()
             message.set_content(mail_text, cte='base64')
             message.add_alternative(letter_html(mail_text), subtype='html', cte='base64')
             pdf = Path(app.static_folder)/'Kevin_Martini_CV.pdf'
@@ -244,12 +253,13 @@ def register_gmail(app):
             result.raise_for_status()
             if not result.json().get('id'):
                 raise ValueError('No receipt')
-            return jsonify(sent=True, recipient=TEST_RECIPIENT, verified_application_email=verified_email)
+            return jsonify(sent=True, recipient=recipient, mode=mode, verified_application_email=verified_email)
         except RecipientValidationError as exc:
             return jsonify(code=exc.code, error=exc.message), 409
         except Exception:
             # Never retry a send automatically: provider acceptance may be uncertain.
             return jsonify(error='Sändningen kunde inte bekräftas. Kontrollera Skickat i Gmail innan du försöker igen.'), 502
+
 
 
 
