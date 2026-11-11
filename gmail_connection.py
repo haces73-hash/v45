@@ -20,7 +20,8 @@ SCOPE = 'openid email https://www.googleapis.com/auth/gmail.send'
 TEST_RECIPIENT = 'haces@hotmail.com'
 
 def mail_mode():
-    return 'live' if os.environ.get('GMAIL_SEND_MODE', '').strip().lower() == 'live' else 'test'
+    mode = os.environ.get('GMAIL_SEND_MODE', 'preview').strip().lower()
+    return mode if mode in ('live', 'test') else 'preview'
 
 def letter_html(text):
     # Paragraphs flow with the recipient's viewport; lists keep separate items.
@@ -224,6 +225,8 @@ def register_gmail(app):
     def gmail_send_test():
         if not csrf_ok():
             return jsonify(error='Ladda om sidan och försök igen.'), 403
+        if mail_mode() == 'preview':
+            return jsonify(error='Förhandsvisning: inga mejl skickas.', mode='preview'), 403
         body = request.get_json(silent=True) or {}
         letter, title = body.get('letter'), body.get('title')
         if not isinstance(letter, str) or not letter.strip() or len(letter)>30000 or not isinstance(title, str) or len(title)>200 or '\n' in title or '\r' in title:
@@ -259,6 +262,7 @@ def register_gmail(app):
         except Exception:
             # Never retry a send automatically: provider acceptance may be uncertain.
             return jsonify(error='Sändningen kunde inte bekräftas. Kontrollera Skickat i Gmail innan du försöker igen.'), 502
+
 
 
 

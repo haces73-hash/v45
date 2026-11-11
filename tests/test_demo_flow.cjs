@@ -4,7 +4,7 @@ const script=[...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g)].map
 const data=new Map(),elements=new Map(),requests=[];let denySave=false,availability='active',resetApproval=false;
 function el(id){if(!elements.has(id))elements.set(id,{value:'',hidden:false,textContent:'',innerHTML:'',classList:{toggle(){}},addEventListener(){},style:{}});return elements.get(id)}
 const ctx={Intl,Date,JSON,Math,Set,Map,URL,console,setTimeout,clearTimeout,AbortController,document:{getElementById:el},confirm(){return resetApproval},scrollTo(){},alert(){},localStorage:{getItem:k=>data.get(k)||null,setItem(k,v){if(denySave)throw Error('full');data.set(k,v)},removeItem:k=>data.delete(k),key:i=>[...data.keys()][i],get length(){return data.size}},window:{open(){throw Error('External navigation')}},async fetch(url){assert(url.startsWith('/api/ad-status?id='));requests.push(url);if(availability==='network_error')throw Error('offline');return {ok:true,json:async()=>({status:availability})}}};
-vm.createContext(ctx);vm.runInContext(script,ctx);const run=s=>vm.runInContext(s,ctx);
+vm.createContext(ctx);vm.runInContext(script,ctx);const run=s=>vm.runInContext(s,ctx);run("gmailSendMode='test'");
 (async()=>{
  el('profile').value='priority';el('fulltime').value='1';el('region').value='municipality';el('city').value='Halmstad';
  const roleCases=[
@@ -115,7 +115,7 @@ vm.createContext(ctx);vm.runInContext(script,ctx);const run=s=>vm.runInContext(s
  assert(el('applicationGuidance').textContent.includes('externa webbplats'));
  el('body').value='Exakt utskickat brev';resetApproval=true;
  let sentCalls=0;
- ctx.fetch=async url=>{if(url==='/api/gmail/status')return {ok:true,json:async()=>({configured:true,connected:true,email:'test@gmail.com',csrf:'fresh'})};assert.equal(url,'/api/gmail/send-test');sentCalls++;return {ok:true,json:async()=>({sent:true,recipient:'haces@hotmail.com'})}};
+ ctx.fetch=async url=>{if(url==='/api/gmail/status')return {ok:true,json:async()=>({configured:true,mode:'test',connected:true,email:'test@gmail.com',csrf:'fresh'})};assert.equal(url,'/api/gmail/send-test');sentCalls++;return {ok:true,json:async()=>({sent:true,recipient:'haces@hotmail.com'})}};
  await run('sendGmailTest()');await run('sendReviewedGmailTest()');
  assert.equal(sentCalls,1);assert(!run('jobs.some(j=>j.id==="test-mail-998")'));
  assert.equal(run('readDemoApplications().find(x=>x.job.id==="test-mail-998").letter'),'Exakt utskickat brev');
@@ -123,7 +123,7 @@ vm.createContext(ctx);vm.runInContext(script,ctx);const run=s=>vm.runInContext(s
  assert(el('historyItems').innerHTML.includes('TEST SKICKAT TILL'));
  const beforeFailed=run('readDemoApplications().length');
  run('jobs='+JSON.stringify([{...mailJob,id:'failed-mail-999'}])+';prepare(0)');
- ctx.fetch=async url=>url==='/api/gmail/status'?{ok:true,json:async()=>({connected:true,csrf:'fresh'})}:{ok:false,json:async()=>({error:'Failed'})};
+ ctx.fetch=async url=>url==='/api/gmail/status'?{ok:true,json:async()=>({mode:'test',connected:true,csrf:'fresh'})}:{ok:false,json:async()=>({error:'Failed'})};
  await run('sendGmailTest()');await run('sendReviewedGmailTest()');assert.equal(run('readDemoApplications().length'),beforeFailed);assert.equal(run('jobs[0].id'),'failed-mail-999');
  const ext={...job,id:'external-101',application:{type:'external',url:'https://example.com/apply'}};
  run('jobs='+JSON.stringify([ext])+';allCandidates='+JSON.stringify([ext])+';prepare(0)');
@@ -137,7 +137,7 @@ vm.createContext(ctx);vm.runInContext(script,ctx);const run=s=>vm.runInContext(s
  assert.equal(run('externalApplicationUrl({application:{type:"external",url:"javascript:alert(1)"}})'),null);
  assert.equal(run('externalApplicationUrl({application:{type:"email",url:"https://example.com"}})'),null);
  let reviewSends=0;
- ctx.fetch=async url=>{if(url==='/api/gmail/status')return {ok:true,json:async()=>({configured:true,connected:true,email:'kevin@example.com',csrf:'token'})};reviewSends++;return {ok:true,json:async()=>({sent:true,recipient:'haces@hotmail.com'})}};
+ ctx.fetch=async url=>{if(url==='/api/gmail/status')return {ok:true,json:async()=>({configured:true,mode:'test',connected:true,email:'kevin@example.com',csrf:'token'})};reviewSends++;return {ok:true,json:async()=>({sent:true,recipient:'haces@hotmail.com'})}};
  const finalReviewJob={...job,id:'review-mail-final',application:{type:'email',email:'employer@example.com'}};
  run('jobs='+JSON.stringify([finalReviewJob])+';allCandidates='+JSON.stringify([finalReviewJob])+';prepare(0)');
  el('body').value='Mitt granskade brev <tag>';
@@ -153,6 +153,7 @@ vm.createContext(ctx);vm.runInContext(script,ctx);const run=s=>vm.runInContext(s
  await run('sendReviewedGmailTest()');assert.equal(reviewSends,1);
  console.log('PASS: save hides job without refill; history reopens exact letter and job; active/deleted/offline differentiated; no employer calls; failed save keeps job/text.');
 })().catch(e=>{console.error(e);process.exitCode=1});
+
 
 
 
