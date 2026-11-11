@@ -142,6 +142,29 @@ class RecipientTests(GmailTests):
    result=self.client.post('/api/gmail/send-test',headers={'X-Gmail-CSRF':csrf},json={'title':'Montör','letter':'Brev','job_id':'12345678','reviewed_email':'info@example.com'})
    self.assertEqual(result.status_code,409);self.assertEqual(result.json['code'],'recipient_changed');post.assert_not_called()
 
+class MailModeTests(GmailTests):
+ def test_default_and_unknown_mode_are_test(self):
+  from gmail_connection import mail_mode
+  for value in ['', 'typo', 'false']:
+   with patch.dict(os.environ,{'GMAIL_SEND_MODE':value}):self.assertEqual(mail_mode(),'test')
+ def test_live_uses_verified_recipient(self):
+  from email import message_from_bytes,policy
+  csrf=self.connect()
+  with patch.dict(os.environ,{'GMAIL_SEND_MODE':'live'}),patch('gmail_connection.validate_recipient',return_value='verified@example.com'),patch('gmail_connection.requests.post',side_effect=[self.response({'access_token':'access'}),self.response({'id':'sent'})]) as post:
+   r=self.client.post('/api/gmail/send-test',headers={'X-Gmail-CSRF':csrf},json={'title':'Montör','letter':'Brev','job_id':'12345678','reviewed_email':'verified@example.com','send_mode':'live','reviewed_sender':'test@gmail.com','to':'ignored@example.com'})
+   self.assertTrue(r.json['sent']);self.assertEqual(r.json['mode'],'live')
+   message=message_from_bytes(base64.urlsafe_b64decode(post.call_args.kwargs['json']['raw']),policy=policy.default)
+   self.assertEqual(message['To'],'verified@example.com');self.assertEqual(message['Subject'],'Ansökan – Montör')
+   self.assertEqual(message.get_body(preferencelist=('plain',)).get_content().strip(),'Brev')
+ def test_mode_change_and_sender_change_stop_before_send(self):
+  csrf=self.connect()
+  with patch.dict(os.environ,{'GMAIL_SEND_MODE':'live'}),patch('gmail_connection.requests.post') as post:
+   for fields in [{},{'send_mode':'test'},{'send_mode':'live','reviewed_sender':'wrong@example.com'}]:
+    r=self.client.post('/api/gmail/send-test',headers={'X-Gmail-CSRF':csrf},json={'title':'Montör','letter':'Brev',**fields})
+    self.assertEqual(r.status_code,409)
+   post.assert_not_called()
+
 if __name__=='__main__':unittest.main()
+
 
 
