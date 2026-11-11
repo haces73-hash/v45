@@ -41,7 +41,7 @@ class GmailTests(unittest.TestCase):
    self.assertTrue(self.client.post('/api/gmail/disconnect',headers={'X-Gmail-CSRF':csrf}).json['disconnected'])
  def test_send_locked_to_test_address_with_pdf(self):
   csrf=self.connect()
-  with patch('gmail_connection.requests.post',side_effect=[self.response({'access_token':'access'}),self.response({'id':'sent-id'})]) as post:
+  with patch('gmail_connection.validate_recipient',return_value='employer@example.com'), patch('gmail_connection.requests.post',side_effect=[self.response({'access_token':'access'}),self.response({'id':'sent-id'})]) as post:
    r=self.client.post('/api/gmail/send-test',headers={'X-Gmail-CSRF':csrf},json=dict(title='Montör',letter='Mitt ändrade brev',to='employer@invalid.test'))
    self.assertTrue(r.json['sent'])
    raw=base64.urlsafe_b64decode(post.call_args.kwargs['json']['raw']).decode()
@@ -116,5 +116,32 @@ class LetterHtmlTests(unittest.TestCase):
   self.assertIn('• AutoCAD</p>',result)
   self.assertIn('<p>Se även bifogat CV.</p>',result)
 
+class RecipientTests(GmailTests):
+ def test_recipient_validation_cases(self):
+  from gmail_connection import validate_recipient, RecipientValidationError
+  ad={'id':'12345678','application_details':{'email':'info@example.com'}}
+  def response(payload):
+   result=self.response(payload);result.status_code=200;return result
+  with patch('gmail_connection.requests.get',return_value=response(ad)) as get:
+   self.assertEqual(validate_recipient('12345678','info@example.com'),'info@example.com')
+   self.assertFalse(get.call_args.kwargs['allow_redirects'])
+   for email in ['',None,'bad','victim@example.com\r\nBcc:x@y.com','other@example.com']:
+    with self.assertRaises(RecipientValidationError):validate_recipient('12345678',email)
+  for details in [{'url':'https://example.com/apply','email':'info@example.com'},{},{'email':'bad'}]:
+   with patch('gmail_connection.requests.get',return_value=response({'id':'12345678','application_details':details})):
+    with self.assertRaises(RecipientValidationError):validate_recipient('12345678','info@example.com')
+  for payload in [{'id':'99999999','application_details':ad['application_details']},{**ad,'removed':True}]:
+   with patch('gmail_connection.requests.get',return_value=response(payload)):
+    with self.assertRaises(RecipientValidationError):validate_recipient('12345678','info@example.com')
+  with patch('gmail_connection.requests.get',side_effect=TimeoutError()):
+   with self.assertRaises(RecipientValidationError):validate_recipient('12345678','info@example.com')
+ def test_stop_before_any_send(self):
+  from gmail_connection import RecipientValidationError
+  csrf=self.connect()
+  with patch('gmail_connection.validate_recipient',side_effect=RecipientValidationError('recipient_changed','Ny granskning krävs')),patch('gmail_connection.requests.post') as post:
+   result=self.client.post('/api/gmail/send-test',headers={'X-Gmail-CSRF':csrf},json={'title':'Montör','letter':'Brev','job_id':'12345678','reviewed_email':'info@example.com'})
+   self.assertEqual(result.status_code,409);self.assertEqual(result.json['code'],'recipient_changed');post.assert_not_called()
+
 if __name__=='__main__':unittest.main()
+
 
