@@ -47,6 +47,46 @@ def letter_html(text):
         rendered.append(''.join(chunks))
     return '<html><body><div style="font-family:Arial,sans-serif;font-size:16px;line-height:1.5;max-width:640px;overflow-wrap:anywhere">' + ''.join(rendered) + '</div></body></html>'
 
+class RecipientValidationError(Exception):
+    def __init__(self, code, message):
+        self.code, self.message = code, message
+        super().__init__(code)
+
+
+def validate_recipient(job_id, reviewed_email):
+    def stop(code, message):
+        raise RecipientValidationError(code, message)
+    def valid_email(value):
+        return isinstance(value, str) and len(value) <= 254 and bool(re.fullmatch(r"[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+)*@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)+", value))
+    if not isinstance(job_id, str) or not re.fullmatch(r'[0-9]{6,12}', job_id):
+        stop('original_unverified', 'Originalannonsens ID kunde inte verifieras. Inget skickades.')
+    if not valid_email(reviewed_email):
+        stop('recipient_invalid', 'Ansökningsadressen saknas eller är ogiltig. Inget skickades.')
+    try:
+        result = requests.get('https://jobsearch.api.jobtechdev.se/ad/'+job_id, timeout=15, allow_redirects=False)
+        result.raise_for_status()
+        if result.status_code != 200:
+            raise ValueError()
+        ad = result.json()
+        if not isinstance(ad, dict) or str(ad.get('id')) != job_id or ad.get('removed') is True:
+            raise ValueError()
+    except Exception:
+        stop('original_unavailable', 'Originalannonsen kunde inte kontrolleras eller är borttagen. Inget skickades. Försök igen senare.')
+    details = ad.get('application_details') or {}
+    if not isinstance(details, dict):
+        details = {}
+    # Never use a contact person's address or an address found in free text.
+    url = details.get('url') or ad.get('application_url') or ad.get('apply_url')
+    if url:
+        stop('external_application', 'Annonsen hänvisar till en ansökningssida. Ansök på webbplatsen i stället. Inget mejl skickades.')
+    original_email = details.get('email') or ad.get('application_email')
+    if not valid_email(original_email):
+        stop('recipient_invalid', 'Originalannonsen saknar en giltig ansökningsadress. Inget skickades.')
+    if original_email.casefold() != reviewed_email.casefold():
+        stop('recipient_changed', 'Ansökningsadressen skiljer sig från den du granskade. Öppna originalannonsen och granska på nytt. Inget skickades.')
+    return original_email
+
+
 def register_gmail(app):
     app.secret_key = os.environ.get('FLASK_SECRET_KEY') or secrets.token_hex(32)
     app.config.update(SESSION_COOKIE_SECURE=True, SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE='Lax')
@@ -189,6 +229,7 @@ def register_gmail(app):
             account = read()
             if not account:
                 return jsonify(error='Anslut Gmail först.'), 401
+            verified_email = validate_recipient(body.get('job_id'), body.get('reviewed_email'))
             response = requests.post('https://oauth2.googleapis.com/token', data=dict(client_id=os.environ['GOOGLE_CLIENT_ID'], client_secret=os.environ['GOOGLE_CLIENT_SECRET'], refresh_token=account['refresh_token'], grant_type='refresh_token'), timeout=15)
             response.raise_for_status()
             message = EmailMessage()
@@ -203,9 +244,12 @@ def register_gmail(app):
             result.raise_for_status()
             if not result.json().get('id'):
                 raise ValueError('No receipt')
-            return jsonify(sent=True, recipient=TEST_RECIPIENT)
+            return jsonify(sent=True, recipient=TEST_RECIPIENT, verified_application_email=verified_email)
+        except RecipientValidationError as exc:
+            return jsonify(code=exc.code, error=exc.message), 409
         except Exception:
             # Never retry a send automatically: provider acceptance may be uncertain.
             return jsonify(error='Sändningen kunde inte bekräftas. Kontrollera Skickat i Gmail innan du försöker igen.'), 502
+
 
 
