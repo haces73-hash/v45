@@ -13,7 +13,7 @@ from gmail_connection import register_gmail
 class GmailTests(unittest.TestCase):
  def setUp(self):
   self.tmp=tempfile.TemporaryDirectory()
-  self.env=patch.dict(os.environ,dict(FLASK_SECRET_KEY='test-secret',GOOGLE_CLIENT_ID='client',GOOGLE_CLIENT_SECRET='secret',GOOGLE_REDIRECT_URI='https://localhost/auth/gmail/callback',GMAIL_TOKEN_KEY=Fernet.generate_key().decode(),GMAIL_DB_PATH=self.tmp.name+'/tokens.db'))
+  self.env=patch.dict(os.environ,dict(GMAIL_SEND_MODE='test',FLASK_SECRET_KEY='test-secret',GOOGLE_CLIENT_ID='client',GOOGLE_CLIENT_SECRET='secret',GOOGLE_REDIRECT_URI='https://localhost/auth/gmail/callback',GMAIL_TOKEN_KEY=Fernet.generate_key().decode(),GMAIL_DB_PATH=self.tmp.name+'/tokens.db'))
   self.env.start();Path(self.tmp.name+'/Kevin_Martini_CV.pdf').write_bytes(b'%PDF-test')
   self.app=Flask(__name__,static_folder=self.tmp.name);register_gmail(self.app);self.client=self.app.test_client()
  def tearDown(self):self.env.stop();self.tmp.cleanup()
@@ -143,10 +143,15 @@ class RecipientTests(GmailTests):
    self.assertEqual(result.status_code,409);self.assertEqual(result.json['code'],'recipient_changed');post.assert_not_called()
 
 class MailModeTests(GmailTests):
- def test_default_and_unknown_mode_are_test(self):
+ def test_default_and_unknown_mode_are_preview(self):
   from gmail_connection import mail_mode
-  for value in ['', 'typo', 'false']:
-   with patch.dict(os.environ,{'GMAIL_SEND_MODE':value}):self.assertEqual(mail_mode(),'test')
+  for value in ['', 'typo', 'preview']:
+   with patch.dict(os.environ,{'GMAIL_SEND_MODE':value}):self.assertEqual(mail_mode(),'preview')
+ def test_preview_prevents_any_send(self):
+  csrf=self.connect()
+  with patch.dict(os.environ,{'GMAIL_SEND_MODE':'preview'}),patch('gmail_connection.requests.post') as post:
+   result=self.client.post('/api/gmail/send-test',headers={'X-Gmail-CSRF':csrf},json={'title':'Test','letter':'Brev','send_mode':'live'})
+   self.assertEqual(result.status_code,403);post.assert_not_called()
  def test_live_uses_verified_recipient(self):
   from email import message_from_bytes,policy
   csrf=self.connect()
@@ -165,6 +170,7 @@ class MailModeTests(GmailTests):
    post.assert_not_called()
 
 if __name__=='__main__':unittest.main()
+
 
 
 
