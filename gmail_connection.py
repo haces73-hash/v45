@@ -25,6 +25,12 @@ def letter_html(text):
     rendered = []
     for block in blocks:
         lines = [line.strip() for line in block.split('\n') if line.strip()]
+        # Signatures have intentional line breaks, unlike wrapped prose.
+        signature_at = next((i for i, line in enumerate(lines)
+                             if re.fullmatch(r'Med vänliga hälsningar[,!]?', line, re.IGNORECASE)), None)
+        signature = lines[signature_at:] if signature_at is not None else []
+        if signature:
+            lines = lines[:signature_at]
         chunks, paragraph = [], []
         for line in lines:
             if line.startswith(('• ', '- ')):
@@ -36,6 +42,8 @@ def letter_html(text):
                 paragraph.append(line)
         if paragraph:
             chunks.append('<p>'+html.escape(' '.join(paragraph))+'</p>')
+        if signature:
+            chunks.append('<p>'+'<br>'.join(html.escape(line) for line in signature)+'</p>')
         rendered.append(''.join(chunks))
     return '<html><body><div style="font-family:Arial,sans-serif;font-size:16px;line-height:1.5;max-width:640px;overflow-wrap:anywhere">' + ''.join(rendered) + '</div></body></html>'
 
