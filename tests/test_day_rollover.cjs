@@ -1,11 +1,11 @@
 const fs=require('fs'),vm=require('vm'),assert=require('assert');
 const html=fs.readFileSync(process.argv[2]||require('path').join(__dirname,'..','static','index.html'),'utf8');
-const script=[...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g)].map(m=>m[1]).join('\n').split("['profile','fulltime','region','city','radius'].forEach")[0];
+const script=[...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g)].map(m=>m[1]).join('\n').split("['profile','fulltime','region','radius'].forEach")[0];
 let clock='2026-11-04T22:59:00Z',calls=0;const data=new Map();
 class FakeDate extends Date{constructor(...args){super(...(args.length?args:[clock]))}static now(){return new Date(clock).getTime()}}
 const candidates=Array.from({length:8},(_,i)=>({id:String(80000000+i),title:'Montör '+i,company:'Test AB',city:'Halmstad',description:'Produktion',license_status:'not_required',employment_extent:'full_time',priority:4,match_score:100-i}));
 function boot(){const els=new Map();function el(id){if(!els.has(id))els.set(id,{value:'',hidden:false,textContent:'',innerHTML:'',classList:{toggle(){}},addEventListener(){},style:{}});return els.get(id)}
- const ctx={Intl,Date:FakeDate,JSON,Math,Set,Map,URL,console,setTimeout,clearTimeout,AbortController,document:{getElementById:el},scrollTo(){},confirm(){return true},localStorage:{getItem:k=>data.get(k)||null,setItem:(k,v)=>data.set(k,v),removeItem:k=>data.delete(k),key:i=>[...data.keys()][i],get length(){return data.size}},window:{open(){throw Error('Outbound navigation')}},async fetch(url){assert(url.startsWith('/api/jobs?'));calls++;return {ok:true,json:async()=>({jobs:candidates,needs_review:[]})}}};
+ const ctx={Intl,Date:FakeDate,JSON,Math,Set,Map,URL,console,setTimeout,clearTimeout,AbortController,document:{getElementById:el,querySelectorAll(){return [{value:"Halmstad",checked:true}]}},scrollTo(){},confirm(){return true},localStorage:{getItem:k=>data.get(k)||null,setItem:(k,v)=>data.set(k,v),removeItem:k=>data.delete(k),key:i=>[...data.keys()][i],get length(){return data.size}},window:{open(){throw Error('Outbound navigation')}},async fetch(url){assert(url.startsWith('/api/jobs?'));calls++;return {ok:true,json:async()=>({jobs:candidates,needs_review:[]})}}};
  vm.createContext(ctx);vm.runInContext(script,ctx);for(const [id,val]of Object.entries({profile:'priority',fulltime:'1',city:'Halmstad',region:'municipality',radius:'0'}))el(id).value=val;
  return {run:s=>vm.runInContext(s,ctx),el};}
 (async()=>{
@@ -33,3 +33,4 @@ function boot(){const els=new Map();function el(id){if(!els.has(id))els.set(id,{
  assert(!app.run('jobs.some(j=>j.id==="80000000")'));
  console.log('PASS: Swedish midnight triggers one new search; same-day cache reused; shortlist renewed without new ads; applied job stays excluded; previous-day decline returns; saved letter persists after reboot; second decline stays excluded.');
 })().catch(e=>{console.error(e);process.exitCode=1});
+
