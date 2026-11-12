@@ -1132,10 +1132,15 @@ def _matching_original_for_summary(summary,originals,city):
  return next(iter(matches.values())) if len(matches)==1 else None
 
 def _municipality_jobs_impl():
- from concurrent.futures import ThreadPoolExecutor,as_completed
+ from concurrent.futures import ThreadPoolExecutor,as_completed,TimeoutError
  started=time.monotonic()
- city=request.args.get('city','Halmstad')
- if city not in SEARCH_MUNICIPALITIES:city='Halmstad'
+ cities=list(dict.fromkeys(request.args.getlist('city'))) or ['Halmstad']
+ if len(cities)>len(SEARCH_MUNICIPALITIES) or any(city not in SEARCH_MUNICIPALITIES for city in cities):
+  return jsonify(error='Välj en eller flera av kommunerna i listan.'),400
+ # Canonical order makes equivalent selections share cache and ranking behavior.
+ cities=[city for city in SEARCH_MUNICIPALITIES if city in cities]
+ city=cities[0]
+ search_complete=True
  full_cv=request.args.get('profile','priority')=='full'
  only_fulltime=request.args.get('fulltime','1')!='0'
  found={};regional={};details={};seen=set();errors=[];counts=defaultdict(int);sources=set()
@@ -1144,16 +1149,16 @@ def _municipality_jobs_impl():
  # Each concrete occupational term is queried independently: JobSearch uses AND for words.
  queries=['byggarbetare','anläggningsarbetare','markarbetare','grovarbetare','rivningsarbetare','betongarbetare','snickare','produktionsmedarbetare','montör','svetsare','maskinoperatör','demontör']+(FULL_CV_EXTRA_TERMS if full_cv else [])
  queries=list(dict.fromkeys(queries+ADDITIONAL_CV_SEARCH_TERMS))
- tasks=[('jobsearch',term) for term in queries]
- tasks += [('links',term) for term in dict.fromkeys(['bygg','snickare','montör','svetsare']+ADDITIONAL_CV_SEARCH_TERMS)]
+ tasks=[('jobsearch',term,town) for term in queries for town in cities]
+ tasks += [('links',term,town) for term in dict.fromkeys(['bygg','snickare','montör','svetsare']+ADDITIONAL_CV_SEARCH_TERMS) for town in cities]
  def fetch(task):
-  kind,term=task
+  kind,term,town=task
   if kind=='jobsearch':
    url='https://jobsearch.api.jobtechdev.se/search'
-   params={'q':term,'municipality':SEARCH_MUNICIPALITIES[city],'limit':100}
+   params={'q':term,'municipality':SEARCH_MUNICIPALITIES[town],'limit':100}
   else:
    url='https://links.api.jobtechdev.se/joblinks'
-   params={'q':term+' '+city,'limit':40,'sort':'relevance','exclude_source':'arbetsformedlingen.se'}
+   params={'q':term+' '+town,'limit':40,'sort':'relevance','exclude_source':'arbetsformedlingen.se'}
   response=requests.get(url,params=params,timeout=5,headers={'Accept':'application/json'})
   response.raise_for_status()
   data=response.json()
@@ -1168,10 +1173,15 @@ def _municipality_jobs_impl():
   else:
    original_places[str(raw.get('id') or '')]=_has_workplace_location(raw)
    full_originals[str(raw.get('id') or '')]=raw
-  matched=_municipality_addresses(raw,city)
+  matched=[];matched_cities=[]
+  for town in cities:
+   addresses=_municipality_addresses(raw,town)
+   if addresses:matched_cities.append(town)
+   for address in addresses:
+    if address not in matched:matched.append(address)
   if not matched:
    parsed=parse_external(raw) if kind=='links' else parse_job(raw,'Platsbanken / JobSearch')
-   review=_regional_workplace_review(raw,parsed,city,full_cv,only_fulltime)
+   review=next((item for town in cities if (item:=_regional_workplace_review(raw,parsed,town,full_cv,only_fulltime))),None)
    if review:regional[_normalize_key(review)]=review
    # Only missing workplace data needs an original lookup. Explicit other municipalities do not.
    addresses=_as_list(raw.get('workplace_addresses'))+[raw.get('workplace_address')]
@@ -1185,21 +1195,30 @@ def _municipality_jobs_impl():
   job=parse_external(selected) if kind=='links' else parse_job(selected,'Platsbanken / JobSearch')
   if not job:counts['kravfilter']+=1;return
   if only_fulltime and job.get('employment_extent')=='part_time':counts['deltid']+=1;return
-  job.update(km=None,municipality_verified=True,search_municipality=city)
-  if not job.get('city'):job['city']=city
+  job.update(km=None,municipality_verified=True,search_municipality=matched_cities[0],search_municipalities=matched_cities)
+  if not job.get('city'):job['city']=matched_cities[0]
   scored=score_job(job,full_cv=full_cv)
   if not scored:counts['kravfilter']+=1;return
   key=_normalize_key(scored)
   if key not in found or _candidate_data_rank(scored)>_candidate_data_rank(found[key]):found[key]=scored
   if kind=='links' and not _has_original_details(scored):
    for original_id in _linked_jobsearch_ids(raw):details.setdefault(original_id,scored)
+ # One bounded pool across all selected municipalities; stop before Render's timeout.
  with ThreadPoolExecutor(max_workers=6) as pool:
-  for future in as_completed({pool.submit(fetch,t):t for t in tasks}):
-   try:
-    kind,hits=future.result();sources.add(_diagnostic_source(kind))
-    for raw in hits:
-     if isinstance(raw,dict):accept(raw,kind)
-   except (requests.RequestException,ValueError,TypeError,KeyError) as error:errors.append(str(error)[:120])
+  futures={pool.submit(fetch,t):t for t in tasks}
+  try:
+   for future in as_completed(futures,timeout=70):
+    try:
+     kind,hits=future.result();sources.add(_diagnostic_source(kind))
+     for raw in hits:
+      if isinstance(raw,dict):accept(raw,kind)
+    except (requests.RequestException,ValueError,TypeError,KeyError):
+     search_complete=False
+     errors.append('En sökkälla kunde inte nås. Uppdatera för att söka igen.')
+  except TimeoutError:
+   search_complete=False
+   errors.append('Sökningen hann inte kontrollera alla valda kommuner. Uppdatera för att söka igen.')
+   for future in futures:future.cancel()
  # Finish local summaries from originals; known municipality is never inferred from a title.
  selected=sorted(details.items(),key=lambda x:(not _original_location_cached(x[0]),x[1].get('priority',99)))[:12]
  with ThreadPoolExecutor(max_workers=6) as pool:
@@ -1218,7 +1237,7 @@ def _municipality_jobs_impl():
    except (requests.RequestException,ValueError,TypeError,KeyError):counts['uppslagsfel']+=1
  # Reconcile external summaries with already fetched originals; no extra network calls.
  for source_id,summary in external_summaries.items():
-  original=_matching_original_for_summary(summary,full_originals.values(),city)
+  original=next((item for town in cities if (item:=_matching_original_for_summary(summary,full_originals.values(),town))),None)
   if not original:continue
   parsed=parse_external(summary)
   if not parsed:continue
@@ -1243,7 +1262,7 @@ def _municipality_jobs_impl():
  keys={_normalize_key(j) for j in ranked}
  review.extend(j for key,j in regional.items() if key not in keys)
  return jsonify(jobs=_attach_requirement_checks(qualified),needs_review=_attach_requirement_checks(review),
-  unknown_location=[],city=city,municipality=city,region='municipality',radius=0,
+  unknown_location=[],city=city,municipality=city,municipalities=cities,search_complete=search_complete,region='municipality',radius=0,
   search_seconds=round(time.monotonic()-started,1),match_counts=match_counts(found),
   municipality_summary=dict(counts),diagnostics={},sources=sorted(sources),source=', '.join(sorted(sources)),errors=errors[:8])
 
@@ -1920,4 +1939,5 @@ def _v50_no_cache(response):
   response.headers['Pragma']='no-cache'
   response.headers['Expires']='0'
  return response
+
 
